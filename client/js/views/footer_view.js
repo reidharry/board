@@ -134,8 +134,8 @@ App.FooterView = Backbone.View.extend({
             });
         }
         var getting_new_array = [];
-        if (!_.isEmpty(localStorage.getItem('apps'))) {
-            apps_data = JSON.parse(localStorage.getItem('apps'));
+        if (!_.isEmpty(localforage.getItem('apps'))) {
+            apps_data = JSON.parse(localforage.getItem('apps'));
             var getss = apps_data;
             var get_names = [];
             _.each(apps_data, function(data) {

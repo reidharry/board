@@ -1968,7 +1968,7 @@ $app->POST('/api/v1/users/login.json', function ($request, $response, $args)
         $ldap_error = $ldap_response['ldap_error'];
         $user = $ldap_response['user'];
     }
-    if (is_plugin_enabled('r_ldap_login') && !empty($log_user) && $log_user['is_ldap'] == 0) {
+    if (!is_plugin_enabled('r_ldap_login') && !empty($log_user) && $log_user['is_ldap'] == 0) {
         $args['password'] = crypt($args['password'], $log_user['password']);
         $val_arr = array(
             $args['email'],

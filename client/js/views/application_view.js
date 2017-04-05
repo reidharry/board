@@ -69,7 +69,7 @@ App.ApplicationView = Backbone.View.extend({
                             $.cookie('links', response.links);
                         }
                         $.cookie('languages', response.languages);
-                        localStorage.setItem('apps', response.apps);
+                        localforage.setItem('apps', response.apps);
                         role_links.add(JSON.parse(response.links));
                         settings.url = api_url + 'settings.json';
                         settings.fetch({
@@ -127,7 +127,7 @@ App.ApplicationView = Backbone.View.extend({
                         abortPending: true,
                         success: function(collection, settings_response) {
                             SITE_NAME = settings_response.SITE_NAME;
-                            localStorage.setItem('apps', settings_response.apps_data);
+                            localforage.setItem('apps', settings_response.apps_data);
                             page.set_page_title();
                             FLICKR_API_KEY = settings_response.FLICKR_API_KEY;
                             DROPBOX_APPKEY = settings_response.DROPBOX_APPKEY;

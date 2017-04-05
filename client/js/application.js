@@ -395,7 +395,7 @@ var AppRouter = Backbone.Router.extend({
             success: function() {
                 $.removeCookie('auth');
                 delete(App.boards);
-                localStorage.removeItem('r_zapier_access_token');
+                localforage.removeItem('r_zapier_access_token');
                 api_token = '';
                 authuser = new App.User();
                 app.navigate('#/users/login', {
