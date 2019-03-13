@@ -7,22 +7,30 @@
 		<%}%>    
 	<% } %>                   
 	<div class="media <%= unread %> modal-<% if((activity.attributes.type == 'add_comment' ||  activity.attributes.type == 'edit_comment')) {%>comments<%} else { %>activities<%}%> <% if(!_.isUndefined(authuser.user) &&  activity.attributes.user_id == authuser.user.id) {%>modal-logged-user-activities<%}%>">
-	<a  title="<%-activity.attributes.full_name %> (<%-activity.attributes.username %>)" data-toggle="tooltip" class="js-tooltip pull-left" href="#/user/<%- activity.attributes.user_id %>">
+	<% if(!_.isUndefined(activity.attributes.full_name) && !_.isEmpty(activity.attributes.full_name)) {%>
+		<a  title="<%-activity.attributes.full_name %> (<%-activity.attributes.username %>)" class="js-tooltip pull-left" href="#/user/<%- activity.attributes.user_id %>">
 			<% if(!_.isEmpty(activity.attributes.profile_picture_path)) {
 				var profile_picture_path = activity.showImage('User', activity.attributes.user_id, 'small_thumb' );
 			 %>      
 				<img src="<%=profile_picture_path %>" alt="[Image: <%-activity.attributes.full_name %>]" title="<%-activity.attributes.full_name %> (<%-activity.attributes.username %>)" class="img-rounded img-responsive">
 			<% } else {%> 
 				<i class="avatar avatar-color-194 img-rounded"><%- activity.attributes.initials %></i>
-			<% } %>       
+			<% } %>
 		</a>
+	<% } else {%>	
+		<% if(!activity.attributes.full_name || !activity.attributes.username){
+			activity.attributes.full_name = i18next.t("[deleted account]");
+			activity.attributes.username =  i18next.t("[deleted user]");
+		}%>
+		<i class="avatar avatar-color-194 img-rounded pull-left" title="<%-activity.attributes.full_name %>"></i>
+	<% } %>
 		<div class="media-body">    
 			<% 
 				var cardLink = '<a href="#/board/' + activity.attributes.board_id + '/card/' + activity.attributes.card_id + '">' + (activity.attributes.card_name) + '</a>';
 				var organizationLink = '<a href="#/organization/' + activity.attributes.organization_id + '">' + (activity.attributes.organization_name) + '</a>';
 				if(activity.attributes.type != 'add_comment' || activity.attributes.type != 'edit_comment') {
 					if(activity.attributes.type !== 'add_card_desc') {
-						if(!_.isUndefined(activity.attributes.difference) && !_.isUndefined(activity.attributes.difference['0'])){
+						if(!_.isEmpty(activity.attributes.difference) && !_.isUndefined(activity.attributes.difference) && !_.isUndefined(activity.attributes.difference['0'])){
 							activity.attributes.comment = activity.attributes.comment.replace('##DESCRIPTION##', (activity.attributes.difference['0']));
 						}else{
 								activity.attributes.comment = activity.attributes.comment.replace('##DESCRIPTION##', (activity.attributes.card_description));
@@ -60,10 +68,10 @@
 							<%if(!_.isUndefined(activity.from_footer)) { %>
 								<span><%= comment %></span>
 							<% } %>
-								<div class="panel no-mar"><div class="panel-body github-markdown">
+								<div class="panel no-mar"><div class="panel-body github-markdown no-whitespace">
 								<%= makeLink(converter.makeHtml(activity.attributes.comment), activity.attributes.board_id) %>
-								<% if(activity.attributes.difference != null && _.contains(['edit_comment', 'edit_list', 'edit_organization', 'edit_board', 'update_card_checklist', 'update_profile', 'edit_card', 'delete_card_comment', 'edit_list_color', 'delete_list_color'], activity.attributes.type)) { %>
-							<div class="<%if(!_.isUndefined(activity.from_footer)) { %>thumbnail<% } %> list-group-item-text">
+								<% if(activity.attributes.difference != null && activity.attributes.difference != '' && !_.isUndefined(activity.attributes.difference['0']) && activity.attributes.difference['0'] != '' && _.contains(['edit_comment', 'edit_list', 'edit_organization', 'edit_board', 'update_card_checklist', 'update_profile', 'edit_card', 'delete_card_comment', 'edit_list_color', 'delete_list_color'], activity.attributes.type)) { %>
+							<div class="<%if(!_.isUndefined(activity.from_footer)) { %>thumbnail<% } %> list-group-item-text no-whitespace">
 								<% _.each(activity.attributes.difference, function(difference) { %>
 									<%= converter.makeHtml(difference) %>
 								<% }); %>
@@ -72,7 +80,7 @@
 								</div></div>
 						<% } else { %>
 							<%if(_.isUndefined(activity.from_footer)) { %>
-								<div class="panel no-mar"><div class="panel-body github-markdown">
+								<div class="panel no-mar"><div class="panel-body github-markdown no-whitespace">
 							<% } %>
 								<%= makeLink(converter.makeHtml(activity.attributes.comment), activity.attributes.board_id) %>
 								<% if(activity.attributes.type == 'add_card_desc'){ %>
@@ -81,7 +89,7 @@
 									</div>
 								<% } %>
 								<% if(activity.attributes.difference != null && _.contains(['edit_comment', 'edit_list', 'edit_organization', 'edit_board', 'update_card_checklist', 'update_profile', 'edit_card', 'edit_list_color', 'delete_list_color', 'edit_card_color', 'delete_card_color', 'edit_card_desc'], activity.attributes.type)) { %>
-							<div class="<%if(!_.isUndefined(activity.from_footer)) { %>thumbnail<% } %> list-group-item-text">
+							<div class="<%if(!_.isUndefined(activity.from_footer)) { %>thumbnail<% } %> list-group-item-text no-whitespace">
 								<% _.each(activity.attributes.difference, function(difference) { %>
 									<%= converter.makeHtml(difference) %>
 								<% }); %>
@@ -108,7 +116,7 @@
 					<% if(!_.isUndefined(authuser.user) && activity.attributes.type == "add_comment" && type != "all" && (_.isUndefined(activity.from_footer))) { %>
 						<div class="js-acticity-action-<%- activity.attributes.id %> pull-left navbar-btn col-md-10 col-xs-12">
 							<ul class="list-inline">
-								<li><a title="Reply" class="js-show-reply-activity-form js-reply-activity-link-<%- activity.attributes.id %>" href="#" data-activity-id="<%- activity.attributes.id %>"><i class="icon-repeat"></i><%- i18next.t("Reply") %></a></li>
+								<li><a title="Reply" class="js-show-reply-activity-form js-reply-activity-link-<%- activity.attributes.id %>" href="javascript:void(0);" data-activity-id="<%- activity.attributes.id %>"><i class="icon-repeat"></i><%- i18next.t("Reply") %></a></li>
 							<% if(!_.isUndefined(authuser.user) && (authuser.user.role_id == 1 || !_.isEmpty(board.acl_links.where({slug: "delete_comment", board_user_role_id: parseInt(activity.board_user_role_id)})))){ %>
 									<li class="dropdown pull-right">
 										<a title="Delete" class="dropdown-toggle js-show-confirm-comment-delete text-danger" data-toggle="dropdown" href="#" data-activity-id="<%- activity.attributes.id %>" role="button"><i class="icon-remove"></i><%- i18next.t("Delete") %></a>

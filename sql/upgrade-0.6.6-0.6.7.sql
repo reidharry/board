@@ -197,3 +197,236 @@ SELECT board.id,
    FROM ((boards board
      LEFT JOIN users users ON ((users.id = board.user_id)))
      LEFT JOIN organizations organizations ON ((organizations.id = board.organization_id)));
+
+DELETE FROM "email_templates" WHERE "name" = 'due_date_notification';
+
+INSERT INTO "email_templates" ("created", "modified", "from_email",
+"reply_to_email", "name", "description", "subject",
+"email_text_content", "email_variables", "display_name")
+VALUES (now(), now(), '##SITE_NAME## Restyaboard <##FROM_EMAIL##>',
+'##REPLY_TO_EMAIL##', 'due_date_notification', 'We will send this
+mail, One day before when the card due date end.', '##SUBJECT##',
+'<html>
+<head><meta http-equiv="Content-Type" content="text/html;
+charset=utf-8" /></head>
+<body style="margin:0">
+<header style="display:block;width:100%;padding-left:0;padding-right:0;
+border-bottom:solid 1px #dedede; float:left;background-color:
+#f7f7f7;">
+<div style="border: 1px solid #EEEEEE;">
+<h1 style="text-align:center;margin:10px 15px 5px;"> <a
+href="##SITE_URL##" title="##SITE_NAME##"><img
+src="##SITE_URL##/img/logo.png" alt="[Restyaboard]"
+title="##SITE_NAME##"></a> </h1>
+</div>
+</header>
+<main style="width:100%;padding-top:10px; padding-bottom:10px;
+margin:0 auto; float:left;">
+<div style="background-color:#f3f5f7;padding:10px;border: 1px solid #EEEEEE;">
+<div style="width: 500px;background-color: #f3f5f7;margin:0 auto;">
+<pre style="font-family: Arial, Helvetica, sans-serif; font-size:
+13px;line-height:20px;">
+<h2 style="font-size:18px; font-family:Arial, Helvetica, sans-serif;
+padding: 59px 0px 0px 0px;">Due soon…</h2>
+<p style="white-space: normal; width: 100%;margin: 10px 0px 0px;
+font-family:Arial, Helvetica, sans-serif;">##CONTENT##</p>
+</pre>
+</div>
+</div>
+</main>
+<footer style="width:100%;padding-left:0;margin:0px auto;border-top:
+solid 1px #dedede; padding-bottom:10px; background:#fff;clear:
+both;padding-top: 10px;border-bottom: solid 1px
+#dedede;background-color: #f7f7f7;">
+<h6 style="text-align:center;margin:5px 15px;">
+<a href="http://restya.com/board/?utm_source=Restyaboard -
+##SITE_NAME##&utm_medium=email&utm_campaign=due_date_notification_email"
+title="Open source. Trello like kanban board." rel="generator"
+style="font-size: 11px;text-align: center;text-decoration: none;color:
+#000;font-family: arial; padding-left:10px;">Powered by
+Restyaboard</a>
+</h6>
+</footer>
+</body>
+</html>', 'SITE_URL, SITE_NAME, SUBJECT, CONTENT', 'Due Date Notification');
+
+UPDATE "settings" SET "description" = '<a href="https://fontawesome.com/v3.2.1/icons/" target="_blank">Font
+Awesome</a> class name. Recommended: icon-circle, icon-bullhorn,
+icon-tag, icon-bookmark, icon-pushpin, icon-star' WHERE "name" = 'LABEL_ICON';
+
+UPDATE users SET profile_picture_path = REPLACE(profile_picture_path, 'media/', '');
+UPDATE card_attachments SET path = REPLACE(path, 'media/', '');
+UPDATE card_attachments SET doc_image_path = REPLACE(doc_image_path, '/img/', '');
+UPDATE boards SET background_picture_path = REPLACE(background_picture_path, 'media/', '');
+UPDATE organizations SET logo_url = REPLACE(logo_url, 'media/', '');
+
+
+ CREATE OR REPLACE VIEW organization_listing AS
+ SELECT organizations.id,
+    to_char(organizations.created, 'YYYY-MM-DD"T"HH24:MI:SS'::text) AS created,
+    to_char(organizations.modified, 'YYYY-MM-DD"T"HH24:MI:SS'::text) AS modified,
+    organizations.user_id,
+    organizations.name,
+    organizations.website_url,
+    organizations.description,
+    organizations.logo_url,
+    organizations.organization_visibility,
+    organizations.organizations_user_count,
+    organizations.board_count,
+    ( SELECT array_to_json(array_agg(row_to_json(b.*))) AS array_to_json
+           FROM ( SELECT boards_listing.id,
+                    boards_listing.name,
+                    boards_listing.user_id,
+                    boards_listing.organization_id,
+                    boards_listing.board_visibility,
+                    boards_listing.background_color,
+                    boards_listing.background_picture_url,
+                    boards_listing.commenting_permissions,
+                    boards_listing.voting_permissions,
+                    ((boards_listing.is_closed)::boolean)::integer AS is_closed,
+                    ((boards_listing.is_allow_organization_members_to_join)::boolean)::integer AS is_allow_organization_members_to_join,
+                    boards_listing.boards_user_count,
+                    boards_listing.list_count,
+                    boards_listing.card_count,
+                    boards_listing.boards_subscriber_count,
+                    boards_listing.background_pattern_url,
+                    ((boards_listing.is_show_image_front_of_card)::boolean)::integer AS is_show_image_front_of_card,
+                    boards_listing.organization_name,
+                    boards_listing.organization_website_url,
+                    boards_listing.organization_description,
+                    boards_listing.organization_logo_url,
+                    boards_listing.organization_visibility,
+                    boards_listing.activities,
+                    boards_listing.boards_subscribers,
+                    boards_listing.boards_stars,
+                    boards_listing.attachments,
+                    boards_listing.lists,
+                    boards_listing.boards_users
+                   FROM boards_listing boards_listing
+                  WHERE (boards_listing.organization_id = organizations.id)
+                  ORDER BY boards_listing.id) b) AS boards_listing,
+    ( SELECT array_to_json(array_agg(row_to_json(c.*))) AS array_to_json
+           FROM ( SELECT organizations_users_listing.id,
+                    organizations_users_listing.created,
+                    organizations_users_listing.modified,
+                    organizations_users_listing.user_id,
+                    organizations_users_listing.organization_id,
+                    organizations_users_listing.organization_user_role_id,
+                    organizations_users_listing.role_id,
+                    organizations_users_listing.username,
+                    organizations_users_listing.email,
+                    organizations_users_listing.full_name,
+                    organizations_users_listing.initials,
+                    organizations_users_listing.about_me,
+                    organizations_users_listing.created_organization_count,
+                    organizations_users_listing.created_board_count,
+                    organizations_users_listing.joined_organization_count,
+                    organizations_users_listing.list_count,
+                    organizations_users_listing.joined_card_count,
+                    organizations_users_listing.created_card_count,
+                    organizations_users_listing.joined_board_count,
+                    organizations_users_listing.checklist_count,
+                    organizations_users_listing.checklist_item_completed_count,
+                    organizations_users_listing.checklist_item_count,
+                    organizations_users_listing.activity_count,
+                    organizations_users_listing.card_voter_count,
+                    organizations_users_listing.name,
+                    organizations_users_listing.website_url,
+                    organizations_users_listing.description,
+                    organizations_users_listing.logo_url,
+                    organizations_users_listing.organization_visibility,
+                    organizations_users_listing.profile_picture_path,
+                    organizations_users_listing.boards_users,
+                    organizations_users_listing.user_board_count
+                   FROM organizations_users_listing organizations_users_listing
+                  WHERE (organizations_users_listing.organization_id = organizations.id)
+                  ORDER BY organizations_users_listing.id) c) AS organizations_users,
+    u.username,
+    u.full_name,
+    u.initials,
+    u.profile_picture_path
+   FROM (organizations organizations
+     LEFT JOIN users u ON ((u.id = organizations.user_id)));
+
+CREATE OR REPLACE VIEW "organizations_listing" AS
+ SELECT organizations.id,
+    to_char(organizations.created, 'YYYY-MM-DD"T"HH24:MI:SS'::text) AS created,
+    to_char(organizations.modified, 'YYYY-MM-DD"T"HH24:MI:SS'::text) AS modified,
+    organizations.user_id,
+    organizations.name,
+    organizations.website_url,
+    organizations.description,
+    organizations.logo_url,
+    organizations.organization_visibility,
+    organizations.organizations_user_count,
+    organizations.board_count,
+    ( SELECT array_to_json(array_agg(row_to_json(b.*))) AS array_to_json
+           FROM ( SELECT boards_listing.id,
+                    boards_listing.name,
+                    boards_listing.user_id,
+                    boards_listing.organization_id,
+                    boards_listing.board_visibility,
+                    boards_listing.background_color,
+                    boards_listing.background_picture_url,
+                    boards_listing.commenting_permissions,
+                    boards_listing.voting_permissions,
+                    ((boards_listing.is_closed)::boolean)::integer AS is_closed,
+                    ((boards_listing.is_allow_organization_members_to_join)::boolean)::integer AS is_allow_organization_members_to_join,
+                    boards_listing.boards_user_count,
+                    boards_listing.list_count,
+                    boards_listing.card_count,
+                    boards_listing.boards_subscriber_count,
+                    boards_listing.background_pattern_url,
+                    ((boards_listing.is_show_image_front_of_card)::boolean)::integer AS is_show_image_front_of_card,
+                    boards_listing.organization_name,
+                    boards_listing.organization_website_url,
+                    boards_listing.organization_description,
+                    boards_listing.organization_logo_url,
+                    boards_listing.organization_visibility,
+                    boards_listing.attachments,
+                    boards_listing.boards_users
+                   FROM boards_listing boards_listing
+                  WHERE (boards_listing.organization_id = organizations.id)
+                  ORDER BY boards_listing.id) b) AS boards_listing,
+    ( SELECT array_to_json(array_agg(row_to_json(c.*))) AS array_to_json
+           FROM ( SELECT organizations_users_listing.id,
+                    organizations_users_listing.created,
+                    organizations_users_listing.modified,
+                    organizations_users_listing.user_id,
+                    organizations_users_listing.organization_id,
+                    organizations_users_listing.organization_user_role_id,
+                    organizations_users_listing.role_id,
+                    organizations_users_listing.username,
+                    organizations_users_listing.email,
+                    organizations_users_listing.full_name,
+                    organizations_users_listing.initials,
+                    organizations_users_listing.about_me,
+                    organizations_users_listing.created_organization_count,
+                    organizations_users_listing.created_board_count,
+                    organizations_users_listing.joined_organization_count,
+                    organizations_users_listing.list_count,
+                    organizations_users_listing.joined_card_count,
+                    organizations_users_listing.created_card_count,
+                    organizations_users_listing.joined_board_count,
+                    organizations_users_listing.checklist_count,
+                    organizations_users_listing.checklist_item_completed_count,
+                    organizations_users_listing.checklist_item_count,
+                    organizations_users_listing.activity_count,
+                    organizations_users_listing.card_voter_count,
+                    organizations_users_listing.name,
+                    organizations_users_listing.website_url,
+                    organizations_users_listing.description,
+                    organizations_users_listing.logo_url,
+                    organizations_users_listing.organization_visibility,
+                    organizations_users_listing.profile_picture_path,
+                    organizations_users_listing.boards_users,
+                    organizations_users_listing.user_board_count
+                   FROM organizations_users_listing organizations_users_listing
+                  WHERE (organizations_users_listing.organization_id = organizations.id)
+                  ORDER BY organizations_users_listing.id) c) AS organizations_users,
+    u.username,
+    u.full_name,
+    u.initials,
+    u.profile_picture_path
+   FROM (organizations organizations
+     LEFT JOIN users u ON ((u.id = organizations.user_id)));
