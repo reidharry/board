@@ -8,7 +8,7 @@
  * @package    REST
  * @subpackage Core
  * @author     Restya <info@restya.com>
- * @copyright  2014-2018 Restya
+ * @copyright  2014-2019 Restya
  * @license    http://restya.com/ Restya Licence
  * @link       http://restya.com/
  * @todo       Fix code duplication & make it really lightweight
@@ -4220,7 +4220,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                     $qry_val_arr = array(
                         $response['id']
                     );
-                    $card_attachments = pg_query_params($db_lnk, 'SELECT * FROM card_attachments WHERE card_id = $1', $qry_val_arr);
+                    $card_attachments = pg_query_params($db_lnk, 'SELECT * FROM card_attachments WHERE card_id = $1 ORDER BY id DESC', $qry_val_arr);
                     while ($card_attachment = pg_fetch_assoc($card_attachments)) {
                         $response['card_attachments'][] = $card_attachment;
                     }
@@ -4384,7 +4384,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
             );
             $prev_message = executeQuery('SELECT ac.*, u,username, u.profile_picture_path, u.initials, u.full_name FROM activities ac LEFT JOIN users u ON ac.user_id = u.id WHERE ac.id = $1 order by created DESC', $qry_val_arr);
         }
-        $r_post['freshness_ts'] = date('Y-m-d h:i:s');
+        $r_post['freshness_ts'] = date('Y-m-d H:i:s');
         $r_post['type'] = 'add_comment';
         $r_post['token'] = $_GET['token'];
         if (empty($r_post['user_id'])) {
@@ -4907,15 +4907,18 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
             $response['cards_labels'] = $cards_labels;
             if (count($newlabel) && !count(array_diff($previous_cards_labels, $oldlabel))) {
                 $names = implode(",", $newlabel);
+                $names = preg_replace('/[ ,]+/', ', ', $names);
                 $comment = '##USER_NAME## added label(s) to this card ##CARD_LINK## - ' . $names;
                 $type = 'add_card_label';
             } else if (!count($newlabel) && count(array_diff($previous_cards_labels, $oldlabel))) {
                 $names = implode(",", array_diff($previous_cards_labels, $oldlabel));
+                $names = preg_replace('/[ ,]+/', ', ', $names);
                 $comment = '##USER_NAME## removed label(s) to this card ##CARD_LINK## - ' . $names;
                 $type = 'update_card_label';
             } else if (count($newlabel) && count(array_diff($previous_cards_labels, $oldlabel))) {
                 $deletenames = implode(",", array_diff($previous_cards_labels, $oldlabel));
                 $names = implode(",", $newlabel);
+                $names = preg_replace('/[ ,]+/', ', ', $names);
                 $comment = '##USER_NAME## removed the label(s) ' . ' - ' . $deletenames . ' and added the lables ' . '-' . $names . ' to this card ##CARD_LINK##';
                 $type = 'update_card_label';
             }
@@ -5361,7 +5364,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 $qry_val_arr = array(
                     $response['id']
                 );
-                $attachments = pg_query_params($db_lnk, 'SELECT * FROM card_attachments WHERE card_id = $1', $qry_val_arr);
+                $attachments = pg_query_params($db_lnk, 'SELECT * FROM card_attachments WHERE card_id = $1 ORDER BY id ASC', $qry_val_arr);
                 while ($attachment = pg_fetch_assoc($attachments)) {
                     $response['cards']['attachments'][] = $attachment;
                 }
@@ -5815,7 +5818,7 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
     global $r_debug, $db_lnk, $authUser, $thumbsizes, $_server_domain_url;
     $fields = 'modified';
     $values = array(
-        date('Y-m-d h:i:s')
+        date('Y-m-d H:i:s')
     );
     $sfields = $table_name = $id = $activity_type = '';
     $response = $diff = $pg_params = $foreign_id = $foreign_ids = $revisions = $previous_value = $obj = array();
@@ -5985,7 +5988,7 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
             $activity_type = 'change_visibility';
         } else if (!empty($r_put['is_closed'])) {
             $comment = '##USER_NAME## closed ##BOARD_NAME## board.';
-            $activity_type = 'reopen_board';
+            $activity_type = 'close_board';
         } else if (isset($r_put['is_closed'])) {
             $comment = '##USER_NAME## reopened ##BOARD_NAME## board.';
             $activity_type = 'reopen_board';

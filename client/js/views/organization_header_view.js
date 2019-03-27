@@ -36,7 +36,7 @@ App.OrganizationHeaderView = Backbone.View.extend({
         if (!_.isUndefined(this.model) && this.model !== null) {
             this.model.showImage = this.showImage;
         }
-        this.model.bind('change:name change:organization_visibility', this.render, this);
+        this.model.bind('change:name change:description change:organization_visibility', this.render, this);
         this.render();
     },
     /**
@@ -90,6 +90,7 @@ App.OrganizationHeaderView = Backbone.View.extend({
             this.closePopup(e);
             this.model.set(data);
             this.model.url = api_url + 'organizations/' + this.model.organization_id + '.json';
+            $('.js-close-popover').click();
             this.model.save(data, {
                 patch: true,
                 success: function(model, response) {
@@ -98,6 +99,7 @@ App.OrganizationHeaderView = Backbone.View.extend({
                     });
                     if (!_.isEmpty(organization)) {
                         organization.set("name", data.name);
+                        organization.set("description", data.description);
                     }
                 }
             });

@@ -91,7 +91,10 @@ class ActivityHandler
                 $obj['foreign_id']
             );
             $obj['card'] = executeQuery('SELECT * FROM cards_listing WHERE id = $1', $obj_val_arr);
-            $obj['card']['card_attachments'] = executeQuery('SELECT * FROM card_attachments WHERE card_id = $1', $obj_val_arr);
+            $card_attachments = pg_query_params($db_lnk, 'SELECT * FROM card_attachments WHERE card_id = $1 ORDER BY id DESC', $obj_val_arr);
+            while ($card_attachment = pg_fetch_assoc($card_attachments)) {
+                $obj['card']['card_attachments'][] = $card_attachment;
+            }
             if (is_plugin_enabled('r_custom_fields')) {
                 $obj['custom_fields'] = array();
                 $conditions = array(
@@ -108,7 +111,7 @@ class ActivityHandler
             );
             $obj['checklist'] = executeQuery('SELECT * FROM checklists_listing WHERE id = $1', $obj_val_arr);
             $obj['checklist']['checklists_items'] = json_decode($obj['checklist']['checklists_items'], true);
-        } else if ($obj_type === 'add_card_label') {
+        } else if ($obj_type === 'add_card_label' || $obj_type === 'update_card_label') {
             $obj_val_arr = array(
                 $obj['card_id']
             );
