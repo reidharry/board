@@ -1,6 +1,7 @@
 /* common style */
 body {
 	-ms-overflow-style: scrollbar;
+	-webkit-overflow-scrolling: touch;
 }
 .cur {
 	cursor: pointer;
@@ -791,6 +792,20 @@ table.acl-link-list > tbody> tr {
 		width: 110px;
 	}
 }
+.board-listview {
+	.card-list-view {
+		.box-shadow(0 1px 1px rgba(0,0,0,0.15));
+		border: 1px solid #fff;
+		&.active {
+			.box-shadow(5px 5px 15px @brand-primary);
+			.card-id {
+				background: @brand-primary;
+				color: #ffffff;
+			}
+		}
+	}
+}
+
 /* Boards list style */
 .board-list-view {
 	-ms-flex-align: start;
@@ -902,6 +917,7 @@ table.acl-link-list > tbody> tr {
 			}
 		}
 		.panel {
+			margin-bottom: 10px;
 			.box-shadow(0 1px 1px rgba(0,0,0,0.15));
 			border: 1px solid #fff;
 			&.active {
@@ -1437,6 +1453,14 @@ div.popped-out + div + div.datetimepicker {
 	.tada-animation {
 		.animated();
 		.animation-name(bounce);
+		.animation-duration(infinite);
+		.animation-timing-function(infinite);
+		.animation-delay(ease);
+		.animation-iteration-count(infinite);
+	}
+	.audio-animation {
+		.animated();
+		.animation-name(tada);
 		.animation-duration(infinite);
 		.animation-timing-function(infinite);
 		.animation-delay(ease);
@@ -2554,4 +2578,24 @@ header{
 	.activity-mod-comments{
 		margin-top: -10px;
 	}
+}
+.custom-datepicker-position {
+	.datetimepicker-dropdown-bottom-left:before {
+		top: -7px;
+    	right: 241px;
+	}
+	.datetimepicker-dropdown-bottom-left:after {
+		top: -6px;
+		right: 241px;
+	}
+}
+.header-logo {
+	margin-bottom: 0px;
+	margin-top: 6px;
+}
+.mt5 {
+	margin-top:5px;
+}
+.nomb {
+	margin-bottom:0px;
 }

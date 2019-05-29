@@ -50,6 +50,7 @@ To upgrade, overwrite application files and apply respective DB script:
 *  v0.6.2 to v0.6.3 - [`/sql/upgrade-0.6.2-0.6.3.sql`](https://github.com/RestyaPlatform/board/blob/master/sql/upgrade-0.6.2-0.6.3.sql)
 *  v0.6.3 to v0.6.4 - [`/sql/upgrade-0.6.3-0.6.4.sql`](https://github.com/RestyaPlatform/board/blob/master/sql/upgrade-0.6.3-0.6.4.sql)
 *  v0.6.5 to v0.6.6 - [`/sql/upgrade-0.6.5-0.6.6.sql`](https://github.com/RestyaPlatform/board/blob/master/sql/upgrade-0.6.5-0.6.6.sql)
+*  v0.6.6 to v0.6.7 - [`/sql/upgrade-0.6.6-0.6.7.sql`](https://github.com/RestyaPlatform/board/blob/master/sql/upgrade-0.6.6-0.6.7.sql)
 
 ### Configuring Restyaboard
 
@@ -68,19 +69,17 @@ To upgrade, overwrite application files and apply respective DB script:
 
 ------------
 
-### Current Status / Plans / Roadamap
+### Current Status / Plans / Roadmap
 
 To give you some idea about of our plans:
 
 #### Under release
 
-* Export CSV app
-* WIP limit app
-* Enhancing Custom fields, LDAP, Gantt app
-* Download all attachments in a card app
-* iCal feed for user app
-* Board reports app
-* Board member roles app
+* Sandstorm support for Installation
+* Import from Asana
+* Import Taskwarrior Tasks
+* SparkPost Plugin for easy email sending
+* In notification emails, Gmail Action Button "View on Restyaboard"
 * GitHub issues & enhancements etc.,
 
 #### Next
@@ -139,6 +138,6 @@ Required sofware: nginx, php-fpm (with mbstring), PostgreSQL, ElasticSearch, Gru
 
 ### License
 
-Copyright (c) 2014-2018 [Restya](http://restya.com/).
+Copyright (c) 2014-2019 [Restya](http://restya.com/).
 
 Dual License ([OSL 3.0](LICENSE.txt) & [Commercial License](http://restya.com/contact))

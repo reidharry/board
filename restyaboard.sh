@@ -15,15 +15,64 @@
 		fi
 		set -x
 		whoami
-		echo $(cat /etc/issue)
-		OS_REQUIREMENT=$(lsb_release -i -s)
-		if ([ "$OS_REQUIREMENT" = "" ])
-		then
-			echo "lsb_release is not enabled, please install \"yum install -y redhat-lsb-core\" command before running install script"
-			exit 1
-		fi
-		OS_VERSION=$(lsb_release -rs | cut -f1 -d.)
-		if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
+		#
+		# Checking the OS name and OS version
+		#
+		find_release ()
+		{
+			# Checking the Ubuntu OS
+			if [ -f /etc/lsb-release ]; then
+				OS_REQUIREMENT="`grep DISTRIB_ID /etc/lsb-release`"
+				DISTRIB_ID='DISTRIB_ID='
+				OS_NAME=$OS_REQUIREMENT$DISTRIB_ID
+				array=();
+				if ([ "$OS_REQUIREMENT" != "$DISTRIB_ID" ])
+				then
+					while [[ $OS_NAME ]]; do
+					array+=( "${OS_NAME%%"$DISTRIB_ID"*}" );
+					OS_NAME=${OS_NAME#*"$DISTRIB_ID"};
+					done;
+					OS_REQUIREMENT=${array[1]}
+				fi
+				OS_VERSION="`grep DISTRIB_RELEASE /etc/lsb-release`"
+				DISTRIB_RELEASE='DISTRIB_RELEASE='
+				OS_Ver=$OS_VERSION$DISTRIB_RELEASE
+				version=();
+				if ([ "$OS_VERSION" != "$DISTRIB_RELEASE" ])
+				then
+					while [[ $OS_Ver ]]; do
+					version+=( "${OS_Ver%%"$DISTRIB_RELEASE"*}" );
+					OS_Ver=${OS_Ver#*"$DISTRIB_RELEASE"};
+					done;
+					OS_VERSION=${version[1]}
+				fi
+				return
+			fi
+
+			# Checking the Redhat, Fedora, and Centos
+			if [ -f /etc/redhat-release ]; then
+				OS_REQUIREMENT="`cat /etc/redhat-release | cut -d ' ' -f 1`"
+				OS_VERSION="`cat /etc/redhat-release | cut -d ' ' -f 4 | cut -d '.' -f 1`"
+				return
+			fi
+
+			# Checking the Debian OS
+			if [ -f /etc/issue ]; then
+				OS_REQUIREMENT="`cat /etc/issue | cut -d ' ' -f 1`"
+				OS_VERSION="`cat /etc/issue | cut -d ' ' -f 3`"
+				return
+			fi
+
+			# Checking the OpenBSD 
+			if [ -f /etc/motd ]; then
+				OS_REQUIREMENT="`cat /etc/motd | head -1 | cut -d ' ' -f 1`"
+				OS_VERSION="`cat /etc/motd | head -1 | cut -d ' ' -f 2`"
+				return
+			fi
+
+		}
+		find_release
+		if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "LinuxMint" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
 		then
 			apt update
 			apt install -y curl unzip
@@ -142,29 +191,81 @@
 		}
 		
 		upgrade-0.6.6-0.6.7(){
-			: > /var/spool/cron/crontabs/root
-			sed -i "s/*\/5 * * * * $dir\/server\/php\/shell\/main.sh//" /var/spool/cron/crontabs/root
+			if [ -d "$dir/client/apps" ]; then
+				chmod -R go+w "$dir/client/apps"
+			else 
+				mkdir "$dir/client/apps"
+				chmod -R go+w "$dir/client/apps"
+			fi
+			curl -v -L -G -o /tmp/r_card_counter-v0.1.1.zip https://github.com/RestyaPlatform/board-apps/releases/download/v1/r_card_counter-v0.1.1.zip
+			unzip /tmp/r_card_counter-v0.1.1.zip -d "$dir/client/apps"
+
+			curl -v -L -G -o /tmp/r_codenames-v0.1.2.zip https://github.com/RestyaPlatform/board-apps/releases/download/v1/r_codenames-v0.1.2.zip
+			unzip /tmp/r_codenames-v0.1.2.zip -d "$dir/client/apps"
+
+			curl -v -L -G -o /tmp/r_eu_gdpr-v0.1.2.zip https://github.com/RestyaPlatform/board-apps/releases/download/v1/r_eu_gdpr-v0.1.2.zip
+			unzip /tmp/r_eu_gdpr-v0.1.2.zip -d "$dir/client/apps"
+
+			curl -v -L -G -o /tmp/r_gmail_addon-v0.1.1.zip https://github.com/RestyaPlatform/board-apps/releases/download/v1/r_gmail_addon-v0.1.1.zip
+			unzip /tmp/r_gmail_addon-v0.1.1.zip -d "$dir/client/apps"			
+			
+			curl -v -L -G -o /tmp/r_hide_card_additional_informations-v0.1.3.zip https://github.com/RestyaPlatform/board-apps/releases/download/v1/r_hide_card_additional_informations-v0.1.3.zip
+			unzip /tmp/r_hide_card_additional_informations-v0.1.3.zip -d "$dir/client/apps"
+
+            find "$dir/client/apps" -type d -exec chmod 755 {} \;
+            find "$dir/client/apps" -type f -exec chmod 644 {} \;
+            chmod 0777 $dir/client/apps/**/*.json
+
+			if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "LinuxMint" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
+			then
+				: > /var/spool/cron/crontabs/root
+				echo "*/5 * * * * $dir/server/php/shell/main.sh > /dev/null 2> /dev/null" >> /var/spool/cron/crontabs/root
+			else
+				: > /var/spool/cron/root
+				echo "*/5 * * * * $dir/server/php/shell/main.sh > /dev/null 2> /dev/null" >> /var/spool/cron/root
+			fi
 		}
 
 		update_version()
 		{
 			set +x
-			echo -e "A newer version ${RESTYABOARD_VERSION} of Restyaboard is available.\n\nImportant: Please note that upgrading will remove any commercial apps that were free in previous version.\nFor more details about commercial apps, please visit http://restya.com/board/pricing\n\nDo you want to get it now y/n?"
+			if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "LinuxMint" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
+			then
+				APACHE_DISABLED=$(service apache2 status | grep 'dead' | wc -l)
+			else
+				if which httpd > /dev/null 2>&1 
+				then
+					APACHE_DISABLED=$(service httpd status | grep 'dead' | wc -l)
+				else
+					APACHE_DISABLED=1
+				fi
+			fi
+			echo -e "A newer version ${RESTYABOARD_VERSION} of Restyaboard is available.\n\nImportant: Please note that upgrading will remove any commercial apps that were free in previous version.\nFor more details about commercial apps, please visit https://restya.com/board/pricing\n\nDo you want to get it now y/n?"
 			read -r answer
 			set -x
 			case "${answer}" in
 				[Yy])
 				set +x
-				echo "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):"
-				read -r dir
-				while [[ -z "$dir" ]]
-				do
-					read -r -p "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):" dir
-				done
+				if [ ${APACHE_DISABLED} -eq 1 ] 
+				then
+					echo "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):"
+					read -r dir
+					while [[ -z "$dir" ]]
+					do
+						read -r -p "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):" dir
+					done
+				else
+					echo "Enter your document root (where your Restyaboard to be installed. e.g., /var/www/html/restyaboard):"
+					read -r dir
+					while [[ -z "$dir" ]]
+					do
+						read -r -p "Enter your document root (where your Restyaboard to be installed. e.g., /var/www/html/restyaboard):" dir
+					done
+				fi
 				set -x
 				
 				echo "Downloading files..."
-				curl -v -L -G -d "app=board&ver=${RESTYABOARD_VERSION}" -o /tmp/restyaboard.zip http://restya.com/download.php
+				curl -v -L -G -d "app=board&ver=${RESTYABOARD_VERSION}" -o /tmp/restyaboard.zip https://restya.com/download.php
 				unzip /tmp/restyaboard.zip -d ${DOWNLOAD_DIR}
 				
 				echo "Updating files..."
@@ -232,6 +333,10 @@
 				if [[ $version < "v0.6.6" ]];
 				then
 					upgrade+=("upgrade-0.6.5-0.6.6")
+				fi
+				if [[ $version < "v0.6.7" ]];
+				then
+					upgrade+=("upgrade-0.6.6-0.6.7")
 				fi			
 				# use for loop to read all values and indexes
 				for i in "${upgrade[@]}"
@@ -254,19 +359,34 @@
 				done
 				/bin/echo "$RESTYABOARD_VERSION" > ${DOWNLOAD_DIR}/release
 
-				if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
+				if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "LinuxMint" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
+				then
+				if [ ${APACHE_DISABLED} -eq 1 ]
 				then
 					service nginx restart
+					else
+					service apache2 restart
+				fi
 					service php${PHP_VERSION}-fpm restart
 				else
 					if [ -f "/bin/systemctl" ]; then
 						echo "Starting services with systemd..."
-						systemctl restart nginx
+						if [ ${APACHE_DISABLED} -eq 1 ]
+				 		then
+							systemctl restart nginx
+							else
+							systemctl restart httpd.service
+						fi
 						systemctl restart php-fpm
 					else
 						echo "Starting services..."
 						/etc/init.d/php-fpm restart
-						/etc/init.d/nginx restart
+						if [ ${APACHE_DISABLED} -eq 1 ]
+				 		then
+							/etc/init.d/nginx restart
+							else
+							/etc/init.d/httpd restart
+						fi
 					fi
 				fi
 
@@ -279,7 +399,7 @@
 			if [[ $version < $RESTYABOARD_VERSION ]];
 			then
 				update_version
-				exit
+				exit;
 			else
 				echo "No new version available"
 				exit;
@@ -292,10 +412,10 @@
 			case "${answer}" in
 				[Yy])
 				update_version
-				exit
+				exit;
 			esac
 		fi
-		if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
+		if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "LinuxMint" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
 		then
 			set +x
 			echo "Setup script will install version ${RESTYABOARD_VERSION} and create database ${POSTGRES_DBNAME} with user ${POSTGRES_DBUSER} and password ${POSTGRES_DBPASS}. To continue enter \"y\" or to quit the process and edit the version and database details enter \"n\" (y/n)?"
@@ -326,34 +446,77 @@
 				esac
 				apt update -y
 				apt install libjpeg8 -y --allow-unauthenticated
-				
-				echo "Checking nginx..."
-				if ! which nginx > /dev/null 2>&1; then
-					echo "nginx not installed!"
+				APACHE_DISABLED=$(service apache2 status | grep 'dead' | wc -l) 
+				if [ ${APACHE_DISABLED} -eq 1 ]
+				 then
+					echo "Checking nginx..."
+					if ! which nginx > /dev/null 2>&1; then
+						echo "nginx not installed!"
+						set +x
+						echo "Do you want to install nginx (y/n)?"
+						read -r answer
+						set -x
+						case "${answer}" in
+							[Yy])
+							echo "Installing nginx..."
+							apt install -y cron nginx
+							error_code=$?
+							if [ ${error_code} != 0 ]
+							then
+								echo "nginx installation failed with error code ${error_code} (nginx installation failed with error code 2)"
+								return 2
+							fi
+							if [ -f "/etc/nginx/conf.d/default" ]; then
+								rm -rf /etc/nginx/conf.d/default
+							fi
+							if [ -f "/etc/nginx/sites-enabled/default" ]; then
+								rm -rf /etc/nginx/sites-enabled/default
+							fi
+							if [ -f "/etc/nginx/sites-available/default" ]; then
+								rm -rf /etc/nginx/sites-available/default
+							fi
+							service nginx start
+						esac
+					fi
+				else
 					set +x
-					echo "Do you want to install nginx (y/n)?"
+					echo "It looks like Apache is running in your server. If you've configured and using any other application in Apache then continue in Apache. Otherwise Restyaboard is recommending to use nginx. So script will stop the apache and install nginx in your server. Do you want to continue as Apache provide "y" or to continue with nginx provide "n" (Y/n)?"
 					read -r answer
 					set -x
 					case "${answer}" in
-						[Yy])
-						echo "Installing nginx..."
-						apt install -y cron nginx
-						error_code=$?
-						if [ ${error_code} != 0 ]
-						then
-							echo "nginx installation failed with error code ${error_code} (nginx installation failed with error code 2)"
-							return 2
+						[Nn])
+						echo "Stopping apache..."
+						service apache2 stop
+						APACHE_DISABLED=$(service apache2 status | grep 'dead' | wc -l) 
+						echo "Checking nginx..."
+						if ! which nginx > /dev/null 2>&1; then
+							echo "nginx not installed!"
+							set +x
+							echo "Do you want to install nginx (y/n)?"
+							read -r answer
+							set -x
+							case "${answer}" in
+								[Yy])
+								echo "Installing nginx..."
+								apt install -y cron nginx
+								error_code=$?
+								if [ ${error_code} != 0 ]
+								then
+									echo "nginx installation failed with error code ${error_code} (nginx installation failed with error code 2)"
+									return 2
+								fi
+								if [ -f "/etc/nginx/conf.d/default" ]; then
+									rm -rf /etc/nginx/conf.d/default
+								fi
+								if [ -f "/etc/nginx/sites-enabled/default" ]; then
+									rm -rf /etc/nginx/sites-enabled/default
+								fi
+								if [ -f "/etc/nginx/sites-available/default" ]; then
+									rm -rf /etc/nginx/sites-available/default
+								fi
+								service nginx start
+							esac
 						fi
-						if [ -f "/etc/nginx/conf.d/default.conf" ]; then
-							rm -rf /etc/nginx/conf.d/default.conf
-						fi
-						if [ -f "/etc/nginx/sites-available/default.conf" ]; then
-							rm -rf /etc/nginx/sites-available/default.conf
-						fi
-						if [ -f "/etc/nginx/sites-enabled/default.conf" ]; then
-							rm -rf /etc/nginx/sites-enabled/default.conf
-						fi
-						service nginx start
 					esac
 				fi
 				
@@ -532,7 +695,13 @@
 					if [[ ${PSQL_VERSION} == "" ]]; then
 						PSQL_VERSION=$(psql --version | egrep -o '[0-9]{1,}\.[0-9]{1,}')
 					fi
-					if [[ $PSQL_VERSION < 9.3 ]]; then
+					if [[ ${PSQL_VERSION} =~ ^10\.[0-9]{1,}$ ]]; then
+						PSQL_VERSION=10
+					fi
+					if [[ ${PSQL_VERSION} =~ ^11\.[0-9]{1,}$ ]]; then
+						PSQL_VERSION=11
+					fi
+					if [[ 1 -eq "$(echo "${PSQL_VERSION} < 9.3" | bc)" ]]; then
 						set +x
 						echo "Restyaboard will not work in your PostgreSQL version (i.e. less than 9.3). So script going to update PostgreSQL version 9.6"
 						sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -561,6 +730,9 @@
 				fi
 				if [[ ${PSQL_VERSION} =~ ^10\.[0-9]{1,}$ ]]; then
 					PSQL_VERSION=10
+				fi
+				if [[ ${PSQL_VERSION} =~ ^11\.[0-9]{1,}$ ]]; then
+					PSQL_VERSION=11
 				fi
 				sed -e 's/peer/trust/g' -e 's/ident/trust/g' < /etc/postgresql/${PSQL_VERSION}/main/pg_hba.conf > /etc/postgresql/${PSQL_VERSION}/main/pg_hba.conf.1
 				cd /etc/postgresql/${PSQL_VERSION}/main || exit
@@ -602,11 +774,10 @@
 				echo "Downloading Restyaboard script..."
 				apt install -y curl
 				mkdir ${DOWNLOAD_DIR}
-				curl -v -L -G -d "app=board&ver=${RESTYABOARD_VERSION}" -o /tmp/restyaboard.zip http://restya.com/download.php
+				curl -v -L -G -d "app=board&ver=${RESTYABOARD_VERSION}" -o /tmp/restyaboard.zip https://restya.com/download.php
 				unzip /tmp/restyaboard.zip -d ${DOWNLOAD_DIR}
-				cp ${DOWNLOAD_DIR}/restyaboard.conf /etc/nginx/conf.d
 				rm /tmp/restyaboard.zip
-				
+
 				set +x
 				echo "To configure nginx, enter your domain name (e.g., www.example.com, 192.xxx.xxx.xxx, etc.,):"
 				read -r webdir
@@ -616,22 +787,61 @@
 				done
 				set -x
 				echo "$webdir"
-				echo "Changing server_name in nginx configuration..."
-				sed -i "s/server_name.*$/server_name \"$webdir\";/" /etc/nginx/conf.d/restyaboard.conf
-				sed -i "s|listen 80.*$|listen 80;|" /etc/nginx/conf.d/restyaboard.conf
-				
-				set +x
-				echo "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):"
-				read -r dir
-				while [[ -z "$dir" ]]
-				do
-					read -r -p "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):" dir
-				done
-				set -x
-				echo "$dir"
-				mkdir -p "$dir"
-				echo "Changing root directory in nginx configuration..."
-				sed -i "s|root.*html|root $dir|" /etc/nginx/conf.d/restyaboard.conf
+				if [ ${APACHE_DISABLED} -eq 1 ] 
+				then
+					set -x
+					cp ${DOWNLOAD_DIR}/restyaboard.conf /etc/nginx/conf.d
+					echo "Changing server_name in nginx configuration..."
+					sed -i "s/server_name.*$/server_name \"$webdir\";/" /etc/nginx/conf.d/restyaboard.conf
+					sed -i "s|listen 80.*$|listen 80;|" /etc/nginx/conf.d/restyaboard.conf
+				else 
+					curl -v -L -G -o ${DOWNLOAD_DIR}/.htaccess https://raw.githubusercontent.com/RestyaPlatform/board/master/.htaccess
+				fi
+				if [ ${APACHE_DISABLED} -eq 1 ] 
+				then
+					set +x
+					echo "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):"
+					read -r dir
+					while [[ -z "$dir" ]]
+					do
+						read -r -p "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):" dir
+					done
+					set -x
+					echo "$dir"
+					mkdir -p "$dir"
+					echo "Changing root directory in nginx configuration..."
+					sed -i "s|root.*html|root $dir|" /etc/nginx/conf.d/restyaboard.conf
+				else
+					set +x
+					echo "Enter your document root (where your Restyaboard to be installed. e.g., /var/www/html/restyaboard):"
+					read -r dir
+					while [[ -z "$dir" ]]
+					do
+						read -r -p "Enter your document root (where your Restyaboard to be installed. e.g., /var/www/html/restyaboard):" dir
+					done
+					set -x
+					echo "$dir"
+					mkdir -p "$dir"
+					echo "Changing root directory in apache configuration..."
+					cp ${DOWNLOAD_DIR}/.htaccess $dir
+					APACHE_ROOT_DIRECTORY=/var/www/html/
+					delimiter=${APACHE_ROOT_DIRECTORY}
+					s=$dir$delimiter
+					array=();
+					if ([ "$dir" != "$delimiter" ])
+					then
+						while [[ $s ]]; do
+						array+=( "${s%%"$delimiter"*}" );
+						s=${s#*"$delimiter"};
+						done;
+						Restyaboardpath=${array[1]}
+						webdir=$webdir'/'$Restyaboardpath
+						sed -i "s|RewriteBase /.*$|RewriteBase /$Restyaboardpath|" $dir/.htaccess
+						sed -i "s/AllowOverride.*$/AllowOverride All/" /etc/apache2/apache2.conf
+    					sed -i "s/Require all denied.*$/Require all granted/" /etc/apache2/apache2.conf
+						rm -rf ${DOWNLOAD_DIR}/.htaccess
+					fi
+				fi
 				echo "Copying Restyaboard script to root directory..."
 				cp -r ${DOWNLOAD_DIR}/* "$dir"
 				
@@ -705,20 +915,8 @@
 				sed -i "s/^.*'R_DB_HOST'.*$/define('R_DB_HOST', '${POSTGRES_DBHOST}');/g" "$dir/server/php/config.inc.php"
 				sed -i "s/^.*'R_DB_PORT'.*$/define('R_DB_PORT', '${POSTGRES_DBPORT}');/g" "$dir/server/php/config.inc.php"
 				
-				echo "Setting up cron for every 5 minutes to send email notification to user, if the user chosen notification type as instant..."
-				echo "*/5 * * * * $dir/server/php/shell/instant_email_notification.sh > /dev/null 2> /dev/null" >> /var/spool/cron/crontabs/root
-				
-				echo "Setting up cron for every 1 hour to send email notification to user, if the user chosen notification type as periodic..."
-				echo "0 * * * * $dir/server/php/shell/periodic_email_notification.sh > /dev/null 2> /dev/null" >> /var/spool/cron/crontabs/root
-				
-				echo "Setting up cron for every 30 minutes to fetch IMAP email..."
-				echo "*/30 * * * * $dir/server/php/shell/imap.sh > /dev/null 2> /dev/null" >> /var/spool/cron/crontabs/root
-				
-				echo "Setting up cron for every 5 minutes to send activities to webhook..."
-				echo "*/5 * * * * $dir/server/php/shell/webhook.sh > /dev/null 2> /dev/null" >> /var/spool/cron/crontabs/root
-				
-				echo "Setting up cron for every 5 minutes to send email notification to past due..."
-				echo "*/5 * * * * $dir/server/php/shell/card_due_notification.sh > /dev/null 2> /dev/null" >> /var/spool/cron/crontabs/root
+				echo "Setting up cron for every 5 minutes.."
+				echo "*/5 * * * * $dir/server/php/shell/main.sh > /dev/null 2> /dev/null" >> /var/spool/cron/crontabs/root
 
 				set +x
 				echo "Do you want to install Restyaboard apps (y/n)?"
@@ -750,12 +948,20 @@
 							unzip /tmp/$app_name.zip -d "$dir/client/apps"
 						fi
 					done
+                    find "$dir/client/apps" -type d -exec chmod 755 {} \;
+                    find "$dir/client/apps" -type f -exec chmod 644 {} \;
+                    chmod 0777 $dir/client/apps/**/*.json
 				esac
 				
 				echo "Starting services..."
 				service cron restart
 				service php7.2-fpm restart
-				service nginx restart
+				if [ ${APACHE_DISABLED} -eq 1 ] 
+				then
+					service nginx restart
+				else
+					service apache2 restart
+				fi
 				service postfix restart
 				apt install -y python-pip
 				pip install virtualenv
@@ -767,40 +973,83 @@
 			set -x
 			case "${answer}" in
 				[Yy])
-
-				echo "Checking nginx..."
-				if ! which nginx > /dev/null 2>&1;
-				then
-					echo "nginx not installed!"
+				APACHE_ENABLED=$(service httpd status | grep 'active' | wc -l)
+				if [ ${APACHE_ENABLED} -eq 1 ]
+				then  
 					set +x
-					echo "Do you want to install nginx (y/n)?"
+					echo "It looks like Apache is running in your server. If you've configured and using any other application in Apache then continue in Apache. Otherwise Restyaboard is recommending to use nginx. So script will stop the apache and install nginx in your server. Do you want to continue as Apache provide "y" or to continue with nginx provide "n" (Y/n)?"
 					read -r answer
 					set -x
 					case "${answer}" in
-						[Yy])
-						echo "Installing nginx..."
-						rpm -Uvh "http://nginx.org/packages/centos/${OS_VERSION}/noarch/RPMS/nginx-release-centos-${OS_VERSION}-0.el${OS_VERSION}.ngx.noarch.rpm"
-						yum install -y zip cronie nginx
-						error_code=$?
-						if [ ${error_code} != 0 ]
-						then
-							echo "cron nginx installation failed with error code ${error_code} cron nginx installation failed with error code 18"
-							return 18
+						[Nn])
+						echo "Stopping apache..."
+						service httpd stop
+						APACHE_ENABLED=$(service httpd status | grep 'active' | wc -l) 
+						echo "Checking nginx..."
+						if ! which nginx > /dev/null 2>&1; then
+							echo "nginx not installed!"
+                            set +x
+                            echo "Do you want to install nginx (y/n)?"
+                            read -r answer
+                            set -x
+                            case "${answer}" in
+                                [Yy])
+                                echo "Installing nginx..."
+                                rpm -Uvh "http://nginx.org/packages/centos/${OS_VERSION}/noarch/RPMS/nginx-release-centos-${OS_VERSION}-0.el${OS_VERSION}.ngx.noarch.rpm"
+                                yum install -y zip cronie nginx
+                                error_code=$?
+                                if [ ${error_code} != 0 ]
+                                then
+                                    echo "cron nginx installation failed with error code ${error_code} cron nginx installation failed with error code 18"
+                                    return 18
+                                fi
+                                if [ -f "/etc/nginx/conf.d/default.conf" ]; then
+                                    rm -rf /etc/nginx/conf.d/default.conf
+                                fi
+								if [ -f "/etc/nginx/sites-enabled/default.conf" ]; then
+                                    rm -rf /etc/nginx/sites-enabled/default.conf
+                                fi
+                                if [ -f "/etc/nginx/sites-available/default.conf" ]; then
+                                    rm -rf /etc/nginx/sites-available/default.conf
+                                fi
+                                service nginx start
+                                chkconfig --levels 35 nginx on
+                            esac
 						fi
-						if [ -f "/etc/nginx/conf.d/default.conf" ]; then
-							rm -rf /etc/nginx/conf.d/default.conf
-						fi
-						if [ -f "/etc/nginx/sites-available/default.conf" ]; then
-							rm -rf /etc/nginx/sites-available/default.conf
-						fi
-						if [ -f "/etc/nginx/sites-enabled/default.conf" ]; then
-							rm -rf /etc/nginx/sites-enabled/default.conf
-						fi
-						service nginx start
-						chkconfig --levels 35 nginx on
 					esac
+				else
+					echo "Checking nginx..."
+					if ! which nginx > /dev/null 2>&1; then
+						echo "nginx not installed!"
+						set +x
+						echo "Do you want to install nginx (y/n)?"
+						read -r answer
+						set -x
+						case "${answer}" in
+							[Yy])
+							echo "Installing nginx..."
+							rpm -Uvh "http://nginx.org/packages/centos/${OS_VERSION}/noarch/RPMS/nginx-release-centos-${OS_VERSION}-0.el${OS_VERSION}.ngx.noarch.rpm"
+							yum install -y zip cronie nginx
+							error_code=$?
+							if [ ${error_code} != 0 ]
+							then
+								echo "cron nginx installation failed with error code ${error_code} cron nginx installation failed with error code 18"
+								return 18
+							fi
+							if [ -f "/etc/nginx/conf.d/default.conf" ]; then
+								rm -rf /etc/nginx/conf.d/default.conf
+							fi
+							if [ -f "/etc/nginx/sites-enabled/default.conf" ]; then
+								rm -rf /etc/nginx/sites-enabled/default.conf
+							fi
+							if [ -f "/etc/nginx/sites-available/default.conf" ]; then
+								rm -rf /etc/nginx/sites-available/default.conf
+							fi
+							service nginx start
+							chkconfig --levels 35 nginx on
+						esac
+					fi
 				fi
-
 				echo "Checking PHP..."
 				if ! hash php 2>&-;
 				then
@@ -957,9 +1206,7 @@
 				echo "Installed PHP version: '$PHP_VERSION'"
 
 				echo "Checking PostgreSQL..."
-				id -a postgres
-				error_code=$?
-				if [ ${error_code} != 0 ];
+				if ! which psql > /dev/null 2>&1;
 				then
 					echo "PostgreSQL not installed!"
 					set +x
@@ -1060,36 +1307,83 @@
 
 				echo "Downloading Restyaboard script..."
 				mkdir ${DOWNLOAD_DIR}
-				curl -v -L -G -d "app=board&ver=${RESTYABOARD_VERSION}" -o /tmp/restyaboard.zip http://restya.com/download.php
+				curl -v -L -G -d "app=board&ver=${RESTYABOARD_VERSION}" -o /tmp/restyaboard.zip https://restya.com/download.php
 				unzip /tmp/restyaboard.zip -d ${DOWNLOAD_DIR}
-				cp ${DOWNLOAD_DIR}/restyaboard.conf /etc/nginx/conf.d
 				rm /tmp/restyaboard.zip
-
-				set +x
-				echo "To configure nginx, enter your domain name (e.g., www.example.com, 192.xxx.xxx.xxx, etc.,):"
-				read -r webdir
-				while [[ -z "$webdir" ]]
-				do
-					read -r -p "To configure nginx, enter your domain name (e.g., www.example.com, 192.xxx.xxx.xxx, etc.,):" webdir
-				done
+				if [ ${APACHE_ENABLED} -eq 0 ]
+				then
+					set +x
+					echo "To configure nginx, enter your domain name (e.g., www.example.com, 192.xxx.xxx.xxx, etc.,):"
+					read -r webdir
+					while [[ -z "$webdir" ]]
+					do
+						read -r -p "To configure nginx, enter your domain name (e.g., www.example.com, 192.xxx.xxx.xxx, etc.,):" webdir
+					done
+				else 
+					set +x
+					echo "To configure apache, enter your domain name (e.g., www.example.com, 192.xxx.xxx.xxx, etc.,):"
+					read -r webdir
+					while [[ -z "$webdir" ]]
+					do
+						read -r -p "To configure apache, enter your domain name (e.g., www.example.com, 192.xxx.xxx.xxx, etc.,):" webdir
+					done
+				fi	
 				set -x
 				echo "$webdir"
-				echo "Changing server_name in nginx configuration..."
-				sed -i "s/server_name.*$/server_name \"$webdir\";/" /etc/nginx/conf.d/restyaboard.conf
-				sed -i "s|listen 80.*$|listen 80;|" /etc/nginx/conf.d/restyaboard.conf
-
-				set +x
-				echo "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):"
-				read -r dir
-				while [[ -z "$dir" ]]
-				do
-					read -r -p "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):" dir
-				done
-				set -x
-				echo "$dir"
-				mkdir -p "$dir"
-				echo "Changing root directory in nginx configuration..."
-				sed -i "s|root.*html|root $dir|" /etc/nginx/conf.d/restyaboard.conf
+				if [ ${APACHE_ENABLED} -eq 0 ]
+				then 
+					echo "Changing server_name in nginx configuration..."
+					cp ${DOWNLOAD_DIR}/restyaboard.conf /etc/nginx/conf.d
+					sed -i "s/server_name.*$/server_name \"$webdir\";/" /etc/nginx/conf.d/restyaboard.conf
+					sed -i "s|listen 80.*$|listen 80;|" /etc/nginx/conf.d/restyaboard.conf
+					else 
+					curl -v -L -G -o ${DOWNLOAD_DIR}/.htaccess https://raw.githubusercontent.com/RestyaPlatform/board/master/.htaccess
+				fi
+				if [ ${APACHE_ENABLED} -eq 1 ] 
+				then
+					set +x
+					echo "Enter your document root (where your Restyaboard to be installed. e.g., /var/www/html/restyaboard):"
+					read -r dir
+					while [[ -z "$dir" ]]
+					do
+						read -r -p "Enter your document root (where your Restyaboard to be installed. e.g., /var/www/html/restyaboard):" dir
+					done
+					set -x
+					echo "$dir"
+					mkdir -p "$dir"
+					echo "Changing root directory in apache configuration..."
+					cp ${DOWNLOAD_DIR}/.htaccess $dir
+					APACHE_ROOT_DIRECTORY=/var/www/html/
+					delimiter=${APACHE_ROOT_DIRECTORY}
+					s=$dir$delimiter
+					array=();
+					if ([ "$dir" != "$delimiter" ])
+					then
+						while [[ $s ]]; do
+						array+=( "${s%%"$delimiter"*}" );
+						s=${s#*"$delimiter"};
+						done;
+						Restyaboardpath=${array[1]}
+						webdir=$webdir'/'$Restyaboardpath
+						sed -i "s|RewriteBase /.*$|RewriteBase /$Restyaboardpath|" $dir/.htaccess
+						sed -i "s/AllowOverride.*$/AllowOverride All/" /etc/httpd/conf/httpd.conf
+    					sed -i "s/Require all denied.*$/Require all granted/" /etc/httpd/conf/httpd.conf
+						rm -rf ${DOWNLOAD_DIR}/.htaccess
+					fi
+				else
+					set +x
+					echo "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):"
+					read -r dir
+					while [[ -z "$dir" ]]
+					do
+						read -r -p "Enter your document root (where your Restyaboard to be installed. e.g., /usr/share/nginx/html/restyaboard):" dir
+					done
+					set -x
+					echo "$dir"
+					mkdir -p "$dir"
+					echo "Changing root directory in nginx configuration..."
+					sed -i "s|root.*html|root $dir|" /etc/nginx/conf.d/restyaboard.conf
+				fi
 				echo "Copying Restyaboard script to root directory..."
 				cp -r "$DOWNLOAD_DIR"/* "$dir"
 
@@ -1100,7 +1394,11 @@
 				chmod -R go+w "$dir/client/img"
 				chmod -R go+w "$dir/tmp/cache"
 				chmod -R 0755 $dir/server/php/shell/*.sh
-
+				if ([ "$OS_REQUIREMENT" = "CentOS" ])
+				then
+					chcon -R -t httpd_sys_rw_content_t $dir/media/ $dir/tmp/cache/ $dir/client/img/
+					chcon -Rv --type=httpd_t $dir/
+				fi
 				psql -U postgres -c "\q"
 				error_code=$?
 				if [ ${error_code} != 0 ]
@@ -1144,7 +1442,10 @@
 						return 45
 					fi	
 				fi
-
+				if ([ "$OS_REQUIREMENT" = "CentOS" ])
+				then
+					setsebool -P allow_postfix_local_write_mail_spool 1
+				fi
 				echo "Changing PostgreSQL database name, user and password..."
 				sed -i "s/^.*'R_DB_NAME'.*$/define('R_DB_NAME', '${POSTGRES_DBNAME}');/g" "$dir/server/php/config.inc.php"
 				sed -i "s/^.*'R_DB_USER'.*$/define('R_DB_USER', '${POSTGRES_DBUSER}');/g" "$dir/server/php/config.inc.php"
@@ -1152,20 +1453,8 @@
 				sed -i "s/^.*'R_DB_HOST'.*$/define('R_DB_HOST', '${POSTGRES_DBHOST}');/g" "$dir/server/php/config.inc.php"
 				sed -i "s/^.*'R_DB_PORT'.*$/define('R_DB_PORT', '${POSTGRES_DBPORT}');/g" "$dir/server/php/config.inc.php"
 				
-				echo "Setting up cron for every 5 minutes to send email notification to user, if the user chosen notification type as instant..."
-				echo "*/5 * * * * $dir/server/php/shell/instant_email_notification.sh > /dev/null 2> /dev/null" >> /var/spool/cron/root
-				
-				echo "Setting up cron for every 1 hour to send email notification to user, if the user chosen notification type as periodic..."
-				echo "0 * * * * $dir/server/php/shell/periodic_email_notification.sh > /dev/null 2> /dev/null" >> /var/spool/cron/root
-				
-				echo "Setting up cron for every 30 minutes to fetch IMAP email..."
-				echo "*/30 * * * * $dir/server/php/shell/imap.sh > /dev/null 2> /dev/null" >> /var/spool/cron/root
-				
-				echo "Setting up cron for every 5 minutes to send activities to webhook..."
-				echo "*/5 * * * * $dir/server/php/shell/webhook.sh > /dev/null 2> /dev/null" >> /var/spool/cron/root
-				
-				echo "Setting up cron for every 5 minutes to send email notification to past due..."
-				echo "*/5 * * * * $dir/server/php/shell/card_due_notification.sh > /dev/null 2> /dev/null" >> /var/spool/cron/root
+				echo "Setting up cron for every 5 minutes..."
+				echo "*/5 * * * * $dir/server/php/shell/main.sh > /dev/null 2> /dev/null" >> /var/spool/cron/root
 				
 				echo "Reset php-fpm (use unix socket mode)..."
 				if [ -f "/run/php/php7.2-fpm.sock" ]; then
@@ -1205,16 +1494,32 @@
 							unzip /tmp/$app_name.zip -d "$dir/client/apps"
 						fi
 					done
+                    find "$dir/client/apps" -type d -exec chmod 755 {} \;
+                    find "$dir/client/apps" -type f -exec chmod 644 {} \;
+                    chmod 0777 $dir/client/apps/**/*.json
 				esac
-
+				if ([ "$OS_REQUIREMENT" = "CentOS" ])
+				then
+					setsebool -P httpd_can_network_connect_db=1
+				fi
 				if [ -f "/bin/systemctl" ]; then
 					echo "Starting services with systemd..."
-					systemctl start nginx
-					systemctl start php-fpm
+					if [ ${APACHE_ENABLED} -eq 1 ] 
+					then
+						systemctl restart httpd.service
+					else
+						systemctl restart nginx
+					fi
+					systemctl restart php-fpm
 				else
 					echo "Starting services..."
 					/etc/init.d/php-fpm restart
-					/etc/init.d/nginx restart
+					if [ ${APACHE_ENABLED} -eq 1 ] 
+					then
+						/etc/init.d/httpd restart
+					else
+						/etc/init.d/nginx restart
+					fi
 				fi
 				yum install -y python-pip
 				pip install virtualenv
@@ -1222,40 +1527,50 @@
 			esac
 		fi
 		/bin/echo "$RESTYABOARD_VERSION" > ${DOWNLOAD_DIR}/release
-		
-		set +x
-		echo "Do you want to setup SSL connectivity for your domain and your domain should be  publicly accessible Restyaboard instance (y/n)?"
-		read -r answer
-		set -x
-		case "${answer}" in
-			[Yy])
-		cd /opt/
-		wget https://github.com/certbot/certbot/archive/master.zip -O certbot-master.zip
-		unzip certbot-master.zip
-		cd /opt/certbot-master/
-		sudo -H ./certbot-auto certonly --webroot --no-bootstrap -d $webdir -w "$dir/client"
-		sed -i "s/restya\.com/$webdir/g" ${DOWNLOAD_DIR}/restyaboard-ssl.conf
-
-		sed -i "/client_max_body_size 300M;/r ${DOWNLOAD_DIR}/restyaboard-ssl.conf"  /etc/nginx/conf.d/restyaboard.conf
-		if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
-		then
-			service nginx restart
-			service php7.2-fpm restart
-		else
-			if [ -f "/bin/systemctl" ]; then
-				echo "Starting services with systemd..."
-				systemctl restart nginx
-				systemctl restart php-fpm
+		if [ ${APACHE_ENABLED} -eq 0 ]; then
+			if [[ $webdir =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+				echo "SSL connectivity cannot be set for IP address"
 			else
-				echo "Starting services..."
-				/etc/init.d/php-fpm restart
-				/etc/init.d/nginx restart
+				set +x
+				echo "Do you want to set up SSL connectivity for your domain and your domain should be  publicly accessible Restyaboard instance, Note: If you're trying to set SSL  for Non-publicly accessible instance, then your Restyaboard will not work (y/n)?"
+				read -r answer
+				set -x
+				case "${answer}" in
+					[Yy])
+					cd /opt/
+					wget https://github.com/certbot/certbot/archive/master.zip -O certbot-master.zip
+					unzip certbot-master.zip
+					cd /opt/certbot-master/
+					sudo -H ./certbot-auto certonly --webroot --no-bootstrap -d $webdir -w "$dir/client"
+					sed -i "s/restya\.com/$webdir/g" ${DOWNLOAD_DIR}/restyaboard-ssl.conf
+
+					sed -i "/client_max_body_size 300M;/r ${DOWNLOAD_DIR}/restyaboard-ssl.conf"  /etc/nginx/conf.d/restyaboard.conf
+					if ([ "$OS_REQUIREMENT" = "Ubuntu" ] || [ "$OS_REQUIREMENT" = "Debian" ] || [ "$OS_REQUIREMENT" = "LinuxMint" ] || [ "$OS_REQUIREMENT" = "Raspbian" ])
+					then
+						service nginx restart
+						service php7.2-fpm restart
+					else
+						if [ -f "/bin/systemctl" ]; then
+							echo "Starting services with systemd..."
+							systemctl restart nginx
+							systemctl restart php-fpm
+						else
+							echo "Starting services..."
+							/etc/init.d/php-fpm restart
+							/etc/init.d/nginx restart
+						fi
+					fi
+				esac
 			fi
 		fi
-		esac
-
 		set +x
-		curl -v -L -G -d "app=board&os=${os}&version=${version}" "http://restya.com/success_installation.php"
+		echo "Checking Hosting..."
+		response=$(curl -H Metadata:true http://169.254.169.254/metadata/instance?api-version=2017-04-02 --write-out %{http_code} --connect-timeout 10 --max-time 10 --silent --output /dev/null)
+		if [ ${response} -eq 200 ];then
+			echo "Note: PHP Mailer will not work in Azure. Kindly use external SMTP mail server."
+		fi
+		set +x
+		curl -v -L -G -d "app=board&os=${os}&version=${version}" "https://restya.com/success_installation.php"
 		echo "Restyaboard URL : $webdir"
 
 		echo "Login with username admin and password restya"
@@ -1264,7 +1579,7 @@
 	main
 	error=$?
 	os=$(lsb_release -i -s)
-	curl -v -L -G -d "app=board&os=${os}&error=${error}" "http://restya.com/error_installation.php"
-	echo "If you're finding it difficult to install Restyaboard from your end, we do also offer free installation support that you may consider http://restya.com/contact?category=free-installation"
+	curl -v -L -G -d "app=board&os=${os}&error=${error}" "https://restya.com/error_installation.php"
+	echo "If you're finding it difficult to install Restyaboard from your end, we do also offer free installation support that you may consider https://restya.com/contact?category=free-installation"
 	exit 1
 } 2>&1 | tee -a restyaboard_install.log

@@ -608,9 +608,14 @@ function sendMail($template, $replace_content, $to, $reply_to_mail = '')
         }
         $headers.= "MIME-Version: 1.0" . PHP_EOL;
         $headers.= "Content-Type: text/html; charset=UTF-8" . PHP_EOL;
-        $headers.= "X-Mailer: Restyaboard (0.6.6; +http://restya.com/board)" . PHP_EOL;
+        $headers.= "X-Mailer: Restyaboard (0.6.7; +http://restya.com/board)" . PHP_EOL;
         $headers.= "X-Auto-Response-Suppress: All" . PHP_EOL;
-        $result = mail($to, $subject, $message, $headers, '-f' . DEFAULT_FROM_EMAIL_ADDRESS);
+        if (is_plugin_enabled('r_sparkpost')) {
+            require_once PLUGIN_PATH . DS . 'SparkPost' . DS . 'functions.php';
+            $result = SparkPostMail($to, $subject, $message, $headers, DEFAULT_FROM_EMAIL_ADDRESS);
+        } else {
+            $result = mail($to, $subject, $message, $headers, '-f' . DEFAULT_FROM_EMAIL_ADDRESS);
+        }
         if (R_DEBUG) {
             if (!$result) {
                 $compose_string = 'F, ' . $from_email . ', ' . $to . ', ' . $subject;
@@ -741,7 +746,7 @@ function copyCards($cards, $new_list_id, $name, $new_board_id = '')
                     $attachment->card_id = $new_card_id;
                     $attachment_result = pg_execute_insert('card_attachments', $attachment);
                     $attachment_result = pg_fetch_assoc($attachment_result);
-                    $comment = __l('##USER_NAME## added attachment to this card ##CARD_LINK##');
+                    $comment = __l('##USER_NAME## added attachment to the card ##CARD_LINK##');
                     insertActivity($authUser['id'], $comment, 'add_card_attachment', $foreign_ids, null, $attachment_result['id']);
                 }
             }
@@ -774,7 +779,7 @@ function copyCards($cards, $new_list_id, $name, $new_board_id = '')
                     if ($checklist_result) {
                         $checklist_result = pg_fetch_assoc($checklist_result);
                         $new_checklist_id = $checklist_result['id'];
-                        $comment = __l('##USER_NAME## added checklist to this card ##CARD_LINK##');
+                        $comment = __l('##USER_NAME## added checklist to the card ##CARD_LINK##');
                         insertActivity($authUser['id'], $comment, 'add_card_checklist', $foreign_ids, '', $new_checklist_id);
                         $checklist_item_fields = 'card_id, checklist_id, user_id, name, position';
                         $qry_val_arr = array(
@@ -787,7 +792,7 @@ function copyCards($cards, $new_list_id, $name, $new_board_id = '')
                                 $checklist_item->checklist_id = $new_checklist_id;
                                 $checklist_item_result = pg_execute_insert('checklist_items', $checklist_item);
                                 $checklist_item_result = pg_fetch_assoc($checklist_item_result);
-                                $comment = __l('##USER_NAME## added checklist item to this card ##CARD_LINK##');
+                                $comment = __l('##USER_NAME## added checklist item to the card ##CARD_LINK##');
                                 insertActivity($authUser['id'], $comment, 'add_checklist_item', $foreign_ids, '', $checklist_item_result['id']);
                             }
                         }
@@ -811,7 +816,11 @@ function copyCards($cards, $new_list_id, $name, $new_board_id = '')
                         $cards_label->card_id = $new_card_id;
                     }
                     pg_execute_insert('cards_labels', $cards_label);
-                    $comment = __l('##USER_NAME## added label(s) to this card ##CARD_LINK## - ##LABEL_NAME##');
+                    $qry_val_arr = array(
+                        $cards_label->label_id
+                    );
+                    $_label = executeQuery('SELECT * FROM labels WHERE id = $1', $qry_val_arr);
+                    $comment = __l('##USER_NAME## added label(s) to the card ##CARD_LINK## - ' . $_label['name']);
                     insertActivity($authUser['id'], $comment, 'add_card_label', $foreign_ids);
                 }
             }
@@ -830,7 +839,7 @@ function copyCards($cards, $new_list_id, $name, $new_board_id = '')
                         $cards_user->user_id
                     );
                     $_user = executeQuery('SELECT username FROM users WHERE id = $1', $qry_val_arr);
-                    $comment = sprintf(__l('##USER_NAME## added %s as member to this card ##CARD_LINK##') , $_user['username']);
+                    $comment = sprintf(__l('##USER_NAME## added %s as member to the card ##CARD_LINK##') , $_user['username']);
                     $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_user', $foreign_ids, '', $cards_user_result['id']);
                 }
             }
@@ -851,7 +860,7 @@ function copyCards($cards, $new_list_id, $name, $new_board_id = '')
                         $cards_field->card_id = $new_card_id;
                     }
                     pg_execute_insert('cards_custom_fields', $cards_field);
-                    $comment = __l('##USER_NAME## added card custom field(s) to this card ##CARD_LINK## ');
+                    $comment = __l('##USER_NAME## added card custom field(s) to the card ##CARD_LINK## ');
                     insertActivity($authUser['id'], $comment, 'add_card_custom_field', $foreign_ids);
                 }
             }
@@ -986,9 +995,10 @@ function createTrelloMember($member = array() , $admin_user_id = array() , $new_
             $member['is_card_members_notifications_enabled'],
             $member['is_card_labels_notifications_enabled'],
             $member['is_card_checklists_notifications_enabled'],
-            $member['is_card_attachments_notifications_enabled']
+            $member['is_card_attachments_notifications_enabled'],
+            'trello-' . utf8_decode($member['username']) . '@mailinator.com',
         );
-        $user = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO users (created, modified, role_id, username, email, password, is_active, is_email_confirmed, initials, full_name, is_send_newsletter, default_desktop_notification, is_list_notifications_enabled, is_card_notifications_enabled, is_card_members_notifications_enabled, is_card_labels_notifications_enabled, is_card_checklists_notifications_enabled, is_card_attachments_notifications_enabled) VALUES (now(), now(), 2, $1, \'\', $2, true, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id', $qry_val_arr));
+        $user = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO users (created, modified, role_id, username, email, password, is_active, is_email_confirmed, initials, full_name, is_send_newsletter, default_desktop_notification, is_list_notifications_enabled, is_card_notifications_enabled, is_card_members_notifications_enabled, is_card_labels_notifications_enabled, is_card_checklists_notifications_enabled, is_card_attachments_notifications_enabled) VALUES (now(), now(), 2, $1, $13, $2, true, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id', $qry_val_arr));
         $user_id = $user['id'];
     } else {
         $user_id = $userExist['id'];
@@ -1081,6 +1091,33 @@ function importTrelloBoard($board = array())
                 }
             }
         }
+        if (is_plugin_enabled('r_custom_fields') && !empty($board['customFields'])) {
+            foreach ($board['customFields'] as $customField) {
+                $options = array();
+                if ($customField['type'] === 'date') {
+                    $customField['type'] = 'datetime';
+                }
+                if ($customField['type'] === 'list') {
+                    foreach ($customField['options'] as $option) {
+                        $options[] = $option['value']['text'];
+                        $customFieldOptions[$option['id']] = $option['value']['text'];
+                    }
+                    $customField['type'] = 'dropdown';
+                }
+                $qry_val_arr = array(
+                    $user_id,
+                    $customField['type'],
+                    $customField['name'],
+                    implode(',', $options) ,
+                    $customField['name'],
+                    $customField['pos'],
+                    $customField['display']['cardFront'],
+                    $new_board['id']
+                );
+                $customFieldId = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO custom_fields (created, modified, user_id, type, name, description, options, label, position, visibility, color, board_id) VALUES (now(), now(), $1, $2, $3, NULL, $4, $5, $6, $7, NULL, $8) RETURNING id', $qry_val_arr));
+                $customFields[$customField['id']] = $customFieldId['id'];
+            }
+        }
         if (!empty($board['labelNames'])) {
             foreach ($board['labelNames'] as $label) {
                 if (!empty($label['name'])) {
@@ -1130,9 +1167,10 @@ function importTrelloBoard($board = array())
                         $member['is_card_members_notifications_enabled'],
                         $member['is_card_labels_notifications_enabled'],
                         $member['is_card_checklists_notifications_enabled'],
-                        $member['is_card_attachments_notifications_enabled']
+                        $member['is_card_attachments_notifications_enabled'],
+                        'trello-' . utf8_decode($member['username']) . '@mailinator.com',
                     );
-                    $user = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO users (created, modified, role_id, username, email, password, is_active, is_email_confirmed, initials, full_name, is_send_newsletter, default_desktop_notification, is_list_notifications_enabled, is_card_notifications_enabled, is_card_members_notifications_enabled, is_card_labels_notifications_enabled, is_card_checklists_notifications_enabled, is_card_attachments_notifications_enabled) VALUES (now(), now(), 2, $1, \'\', $2, true, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id', $qry_val_arr));
+                    $user = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO users (created, modified, role_id, username, email, password, is_active, is_email_confirmed, initials, full_name, is_send_newsletter, default_desktop_notification, is_list_notifications_enabled, is_card_notifications_enabled, is_card_members_notifications_enabled, is_card_labels_notifications_enabled, is_card_checklists_notifications_enabled, is_card_attachments_notifications_enabled) VALUES (now(), now(), 2, $1, $13, $2, true, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id', $qry_val_arr));
                     $users[$member['id']] = $user['id'];
                     if ($member['avatarUrl']) {
                         $mediadir = MEDIA_PATH . DS . 'User' . DS . $user['id'];
@@ -1296,6 +1334,31 @@ function importTrelloBoard($board = array())
                         pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO cards_users (created, modified, card_id, user_id) VALUES (now(), now(), $1, $2) RETURNING id', $qry_val_arr));
                     }
                 }
+                if (is_plugin_enabled('r_custom_fields') && !empty($card['customFieldItems'])) {
+                    foreach ($card['customFieldItems'] as $customFieldItem) {
+                        if (!empty($customFieldItem['idValue'])) {
+                            $value = $customFieldOptions[$customFieldItem['idValue']];
+                        } else if (!empty($customFieldItem['value']['text'])) {
+                            $value = $customFieldItem['value']['text'];
+                        } else if (!empty($customFieldItem['value']['checked'])) {
+                            $value = $customFieldItem['value']['checked'];
+                        } else if (!empty($customFieldItem['value']['number'])) {
+                            $value = $customFieldItem['value']['number'];
+                        } else if (!empty($customFieldItem['value']['date'])) {
+                            $date_arr = explode('T', $customFieldItem['value']['date']);
+                            $time_arr = explode('.', $date_arr[1]);
+                            $value = $date_arr[0] . 'T' . $time_arr[0];
+                        }
+                        $qry_val_arr = array(
+                            $_card['id'],
+                            $customFields[$customFieldItem['idCustomField']],
+                            $value,
+                            $new_board['id'],
+                            $lists[$card['idList']]
+                        );
+                        pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO cards_custom_fields (created, modified, card_id, custom_field_id, value, board_id, list_id) VALUES (now(), now(), $1, $2, $3, $4, $5) RETURNING id', $qry_val_arr));
+                    }
+                }
             }
         }
         if (!empty($board['checklists'])) {
@@ -1341,7 +1404,7 @@ function importTrelloBoard($board = array())
                     if (!empty($action['member'])) {
                         $memberName = $action['member']['fullName'];
                     }
-                    $comment = sprintf(__l('##USER_NAME## added %s as member to this card ##CARD_LINK##') , $memberName);
+                    $comment = sprintf(__l('##USER_NAME## added %s as member to the card ##CARD_LINK##') , $memberName);
                 } else if ($action['type'] == 'createCard') {
                     $type = 'add_card';
                     $listName = '';
@@ -1408,23 +1471,23 @@ function importTrelloBoard($board = array())
                         $comment = sprintf(__l('##USER_NAME## moved cards FROM %s to  %s') , $listBeforeName, $listAfterName);
                     } else if (!empty($action['data']['card']['due'])) {
                         $type = 'add_card_duedate';
-                        $comment = __l('##USER_NAME## SET due date to this card ##CARD_LINK##');
+                        $comment = __l('##USER_NAME## SET due date to the card ##CARD_LINK##');
                     } else if (!empty($action['data']['card']['desc'])) {
                         $type = 'add_card_desc';
-                        $comment = __l('##USER_NAME## added card description in ##CARD_LINK## - ##DESCRIPTION##');
+                        $comment = __l('##USER_NAME## added card description in the card ##CARD_LINK## - ##DESCRIPTION##');
                     } else if (!empty($action['data']['card']['name'])) {
                         $type = 'edit_card';
                         $comment = sprintf(__l('##USER_NAME## edited %s card in this board.') , utf8_decode($action['data']['card']['name']));
                     }
                 } else if ($action['type'] == 'addChecklistToCard') {
                     $type = 'add_card_checklist';
-                    $comment = __l('##USER_NAME## added checklist ##CHECKLIST_NAME## to this card ##CARD_LINK##');
+                    $comment = __l('##USER_NAME## added checklist ##CHECKLIST_NAME## to the card ##CARD_LINK##');
                 } else if ($action['type'] == 'deleteAttachmentFromCard') {
                     $type = 'delete_card_attachment';
                     $comment = __l('##USER_NAME## deleted attachment from card ##CARD_LINK##');
                 } else if ($action['type'] == 'addAttachmentToCard') {
                     $type = 'add_card_attachment';
-                    $comment = __l('##USER_NAME## added attachment to this card ##CARD_LINK##');
+                    $comment = __l('##USER_NAME## added attachment to the card ##CARD_LINK##');
                 } else if ($action['type'] == 'addMemberToBoard') {
                     $type = 'add_board_user';
                     $comment = __l('##USER_NAME## added member to board');
@@ -1746,7 +1809,7 @@ function importKantreeBoard($jsonArr = array())
                                     'avatarUrl' => $cardMember['avatar'],
                                     'initials' => strtoupper(substr($cardMember['display_name'], 0, 1))
                                 );
-                                $users = importMember($member, $new_board);
+                                $users = importMember($member, $new_board, 'kantree');
                                 $userNames[$cardMember['id']] = $cardMember['display_name'];
                             }
                             $qry_val_arr = array(
@@ -1800,15 +1863,15 @@ function importKantreeBoard($jsonArr = array())
                                     $comment = __l('##USER_NAME## deleted member from card ##CARD_LINK##');
                                 } else {
                                     $type = 'add_card_user';
-                                    $comment = sprintf(__l('##USER_NAME## added %s as member to this card ##CARD_LINK##') , $memberName);
+                                    $comment = sprintf(__l('##USER_NAME## added %s as member to the card ##CARD_LINK##') , $memberName);
                                 }
                             } elseif ($action['object']['value'] == 'Due Date') {
                                 if ($action['message'] == '{actor} cleared {object} on {target}') {
                                     $type = 'delete_card_duedate';
-                                    $comment = __l('Due date was removed to this card ##CARD_LINK##');
+                                    $comment = __l('Due date was removed to the card ##CARD_LINK##');
                                 } else {
                                     $type = 'add_card_duedate';
-                                    $comment = __l('##USER_NAME## SET due date to this card ##CARD_LINK##');
+                                    $comment = __l('##USER_NAME## SET due date to the card ##CARD_LINK##');
                                 }
                             } elseif ($action['object']['value'] == 'Attachments') {
                                 if ($action['message'] == '{actor} removed all files from {object} in {target}') {
@@ -1816,7 +1879,7 @@ function importKantreeBoard($jsonArr = array())
                                     $comment = __l('##USER_NAME## deleted attachment from card ##CARD_LINK##');
                                 } else {
                                     $type = 'add_card_attachment';
-                                    $comment = __l('##USER_NAME## added attachment to this card ##CARD_LINK##');
+                                    $comment = __l('##USER_NAME## added attachment to the card ##CARD_LINK##');
                                 }
                             } elseif (!empty($action['origin'])) {
                                 $type = 'edit_card';
@@ -1833,10 +1896,10 @@ function importKantreeBoard($jsonArr = array())
                             if (!empty($labels[$action['target']['id']])) {
                                 if ($action['message'] == '{actor} removed {object} from {target}') {
                                     $type = 'delete_card_label';
-                                    $comment = sprintf(__l('##USER_NAME## removed label in this card ##CARD_LINK## - %s') , $action['target']['value']);
+                                    $comment = sprintf(__l('##USER_NAME## removed label in the card ##CARD_LINK## - %s') , $action['target']['value']);
                                 } else {
                                     $type = 'add_card_label';
-                                    $comment = __l('##USER_NAME## added label to this card ##CARD_LINK## - ##LABEL_NAME##');
+                                    $comment = __l('##USER_NAME## added label to the card ##CARD_LINK## - ##LABEL_NAME##');
                                 }
                             } else {
                                 $type = 'moved_list_card';
@@ -1988,7 +2051,7 @@ function importTaigaBoard($board = array())
                     'fullName' => email2name($membership['email']) ,
                     'initials' => strtoupper(substr($membership['email'], 0, 1))
                 );
-                $users = importMember($member, $new_board);
+                $users = importMember($member, $new_board, 'taiga');
                 //$userNames[$membership['id']] = $member['fullName'];
                 $userNames[$membership['email']] = $users[$membership['email']];
             }
@@ -2087,7 +2150,7 @@ function importTaigaBoard($board = array())
                             $comment = __l('##USER_NAME## deleted attachment from card ##CARD_LINK##');
                         } elseif ($action['data']['values_diff']['attachments']['new']) {
                             $type = 'add_card_attachment';
-                            $comment = __l('##USER_NAME## added attachment to this card ##CARD_LINK##');
+                            $comment = __l('##USER_NAME## added attachment to the card ##CARD_LINK##');
                         }
                     } elseif (isset($action['data']['values_diff']['assigned_users']) && !empty($action['data']['values_diff']['assigned_users'])) {
                         if ($action['data']['values_diff']['assigned_users'][0]) {
@@ -2095,19 +2158,19 @@ function importTaigaBoard($board = array())
                             $comment = __l('##USER_NAME## deleted member from card ##CARD_LINK##');
                         } else {
                             $type = 'add_card_user';
-                            $comment = sprintf(__l('##USER_NAME## added %s as member to this card ##CARD_LINK##') , $action['data']['values_diff']['assigned_users'][1]);
+                            $comment = sprintf(__l('##USER_NAME## added %s as member to the card ##CARD_LINK##') , $action['data']['values_diff']['assigned_users'][1]);
                         }
                     } elseif (isset($action['data']['values_diff']['tags']) && !empty($action['data']['values_diff']['tags'])) {
                         if ($action['data']['values_diff']['tags'][0][0]) {
                             $type = 'add_card_label';
-                            $comment = sprintf(__l('##USER_NAME## added label to this card ##CARD_LINK## - %s') , $action['data']['values_diff']['tags'][0][0]);
+                            $comment = sprintf(__l('##USER_NAME## added label to the card ##CARD_LINK## - %s') , $action['data']['values_diff']['tags'][0][0]);
                         } else {
                             $type = 'delete_card_label';
-                            $comment = sprintf(__l('##USER_NAME## removed label in this card ##CARD_LINK## - %s') , $action['data']['values_diff']['tags'][1][0]);
+                            $comment = sprintf(__l('##USER_NAME## removed label in the card ##CARD_LINK## - %s') , $action['data']['values_diff']['tags'][1][0]);
                         }
                     } elseif (isset($action['data']['values_diff']['description_diff']) && !empty($action['data']['values_diff']['description_diff'])) {
                         $type = 'edit_card_desc';
-                        $comment = __l('##USER_NAME## updated card description in ##CARD_LINK##');
+                        $comment = __l('##USER_NAME## updated description on the card ##CARD_LINK##');
                     } elseif (isset($action['data']['values_diff']['subject']) && !empty($action['data']['values_diff']['subject'])) {
                         $type = 'edit_card';
                         $comment = sprintf(__l('##USER_NAME## edited %s card in this board.') , utf8_decode($action['data']['values_diff']['subject'][1]));
@@ -2117,10 +2180,10 @@ function importTaigaBoard($board = array())
                     } elseif (isset($action['data']['values_diff']['due_date']) && !empty($action['data']['values_diff']['due_date'])) {
                         if ($action['data']['values_diff']['due_date'][0]) {
                             $type = 'delete_card_duedate';
-                            $comment = __l('Due date was removed to this card ##CARD_LINK##');
+                            $comment = __l('Due date was removed to the card ##CARD_LINK##');
                         } else {
                             $type = 'add_card_duedate';
-                            $comment = __l('##USER_NAME## SET due date to this card ##CARD_LINK##');
+                            $comment = __l('##USER_NAME## SET due date to the card ##CARD_LINK##');
                         }
                     }
                 }
@@ -2280,9 +2343,10 @@ function importWekanBoard($board = array())
                         $member['is_card_members_notifications_enabled'],
                         $member['is_card_labels_notifications_enabled'],
                         $member['is_card_checklists_notifications_enabled'],
-                        $member['is_card_attachments_notifications_enabled']
+                        $member['is_card_attachments_notifications_enabled'],
+                        'wekan-' . utf8_decode($member['username']) . '@mailinator.com',
                     );
-                    $user = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO users (created, modified, role_id, username, email, password, is_active, is_email_confirmed, initials, full_name, is_send_newsletter, default_desktop_notification, is_list_notifications_enabled, is_card_notifications_enabled, is_card_members_notifications_enabled, is_card_labels_notifications_enabled, is_card_checklists_notifications_enabled, is_card_attachments_notifications_enabled) VALUES (now(), now(), 2, $1, \'\', $2, true, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id', $qry_val_arr));
+                    $user = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO users (created, modified, role_id, username, email, password, is_active, is_email_confirmed, initials, full_name, is_send_newsletter, default_desktop_notification, is_list_notifications_enabled, is_card_notifications_enabled, is_card_members_notifications_enabled, is_card_labels_notifications_enabled, is_card_checklists_notifications_enabled, is_card_attachments_notifications_enabled) VALUES (now(), now(), 2, $1, $13, $2, true, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id', $qry_val_arr));
                     $users[$wekan_user_id] = $user['id'];
                     $user_data[$wekan_user_id] = $username;
                 } else {
@@ -2438,7 +2502,7 @@ function importWekanBoard($board = array())
                     $comment = $comments_data[$action['commentId']];
                 } else if ($action['activityType'] == 'joinMember') {
                     $type = 'add_card_user';
-                    $comment = sprintf(__l('##USER_NAME## added %s as member to this card ##CARD_LINK##') , utf8_decode($user_data[$action['memberId']]));
+                    $comment = sprintf(__l('##USER_NAME## added %s as member to the card ##CARD_LINK##') , utf8_decode($user_data[$action['memberId']]));
                 } else if ($action['activityType'] == 'createCard') {
                     $type = 'add_card';
                     $comment = sprintf(__l('##USER_NAME## added card ##CARD_LINK## to list %s."') , utf8_decode($lists_data[$action['listId']]));
@@ -2456,7 +2520,7 @@ function importWekanBoard($board = array())
                     $comment = sprintf(__l('##USER_NAME## moved cards FROM %s to %s') , utf8_decode($lists_data[$action['listId']]) , utf8_decode($lists_data[$action['listId']]));
                 } else if ($action['activityType'] == 'addAttachment') {
                     $type = 'add_card_attachment';
-                    $comment = __l('##USER_NAME## added attachment to this card ##CARD_LINK##');
+                    $comment = __l('##USER_NAME## added attachment to the card ##CARD_LINK##');
                 } else if ($action['activityType'] == 'addBoardMember') {
                     $type = 'add_board_user';
                     $comment = __l('##USER_NAME## added member to board');
@@ -2547,6 +2611,424 @@ function importWekanBoard($board = array())
             }
         }
         return $new_board;
+    }
+}
+/**
+ * Import Asana board
+ *
+ * @param array $board Boards from Asana
+ *
+ * @return mixed
+ */
+function splitAsanatasks($board, $task)
+{
+    if (!empty($task['resource_subtype'])) {
+        if ($task['resource_subtype'] == 'default_task') {
+            $board['lists'] = (empty($board['lists'])) ? [] : $board['lists'];
+            $board['card_count'] = (empty($board['card_count'])) ? [] : $board['card_count'];
+            if (!empty($task['memberships'])) {
+                if (!empty($task['memberships'][0]['section'])) {
+                    $tmp_list = $task['memberships'][0]['section'];
+                } else {
+                    $board['todo_template'] = true;
+                    if (!empty($task['completed']) && $task['completed'] == true) {
+                        $tmp_list = $board['lists'][2];
+                    } else if (!empty($task['assignee']) || !empty($task['due_on'])) {
+                        $tmp_list = $board['lists'][1];
+                    } else {
+                        $tmp_list = $board['lists'][0];
+                    }
+                    $board['card_count'][$tmp_list['gid']] = 1;
+                }
+                $task['idList'] = $tmp_list['gid'];
+                if ($tmp_list['resource_type'] === 'section' && !in_array($tmp_list, $board['lists'])) {
+                    $board['card_count'][$task['idList']] = 1;
+                    $board['lists'][] = $tmp_list;
+                } else {
+                    $board['card_count'][$task['idList']] = $board['card_count'][$task['idList']] + 1;
+                }
+            }
+            $board['cards'][] = $task;
+            if (!empty($task['tags'])) {
+                $board['labelNames'] = (empty($board['labelNames'])) ? [] : $board['labelNames'];
+                foreach ($task['tags'] as $tag) {
+                    if ($tag['resource_type'] === 'tag' && !in_array($tag, $board['labelNames'])) {
+                        $board['labelNames'][] = $tag;
+                    }
+                }
+            }
+            if (!empty($task['followers'])) {
+                $board['subscribers'] = (empty($board['subscribers'])) ? [] : $board['subscribers'];
+                foreach ($task['followers'] as $follower) {
+                    if ($follower['resource_type'] === 'user' && !in_array($follower, $board['subscribers'])) {
+                        $board['subscribers'][] = $follower;
+                    }
+                }
+            }
+        }
+    }
+    return $board;
+}
+function importAsanaBoard($jsonArr = array())
+{
+    global $r_debug, $db_lnk, $authUser, $_server_domain_url;
+    $users = $userNames = $lists = $cards = $labels = array();
+    $board['lists'] = array(
+        array(
+            'gid' => 1,
+            'name' => "Todo",
+            'resource_type' => 'section'
+        ) ,
+        array(
+            'gid' => 2,
+            'name' => "Doing",
+            'resource_type' => 'section'
+        ) ,
+        array(
+            'gid' => 3,
+            'name' => "Done",
+            'resource_type' => 'section'
+        )
+    );
+    if (!empty($jsonArr)) {
+        foreach ($jsonArr as $key => $json) {
+            if (!empty($json['resource_subtype'])) {
+                if (!empty($json['memberships'])) {
+                    if (!empty($json['memberships'][0]['project']) && $key === 0) {
+                        $board_details = $json['memberships'][0]['project'];
+                    }
+                }
+                if ($json['resource_subtype'] == 'default_task') {
+                    //Maintasks
+                    $board = splitAsanatasks($board, $json);
+                    //Subtasks
+                    if (!empty($json['subtasks'])) {
+                        foreach ($json['subtasks'] as $key => $subtask) {
+                            if (empty($subtask['memberships']) && !empty($json['memberships'])) {
+                                $subtask['memberships'] = $json['memberships'];
+                            }
+                            $board = splitAsanatasks($board, $subtask);
+                        }
+                    }
+                }
+            }
+        }
+        $board_name = $board_details['name'];
+        if (!empty($board_name)) {
+            $user_id = $authUser['id'];
+            $qry_val_arr = array(
+                utf8_decode($board_name) ,
+                $user_id,
+                0
+            );
+            $new_board = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO boards (created, modified, name, user_id, board_visibility) VALUES (now(), now(), $1, $2, $3) RETURNING id', $qry_val_arr));
+            $server = strtolower($_SERVER['SERVER_SOFTWARE']);
+            if (strpos($server, 'apache') !== false) {
+                ob_end_clean();
+                header("Connection: close\r\n");
+                header("Content-Encoding: none\r\n");
+                ignore_user_abort(true); // optional
+                ob_start();
+                echo json_encode($new_board);
+                $size = ob_get_length();
+                header("Content-Length: $size");
+                ob_end_flush(); // Strange behaviour, will not work
+                flush(); // Unless both are called !
+                ob_end_clean();
+            } else {
+                echo json_encode($new_board);
+                fastcgi_finish_request();
+            }
+            // insert current user as board member
+            $qry_val_arr = array(
+                $authUser['id'],
+                $new_board['id'],
+                1
+            );
+            pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO boards_users (created, modified, user_id, board_id, board_user_role_id) VALUES (now(), now(), $1, $2, $3) RETURNING id', $qry_val_arr));
+            $auto_subscribe_on_board = (AUTO_SUBSCRIBE_ON_BOARD === 'Enabled') ? 'true' : false;
+            if ($auto_subscribe_on_board) {
+                $qry_val_arr = array(
+                    $authUser['id'],
+                    $new_board['id'],
+                    true
+                );
+                pg_query_params($db_lnk, 'INSERT INTO board_subscribers (created, modified, user_id, board_id, is_subscribed) VALUES (now(), now(), $1, $2, $3)', $qry_val_arr);
+            }
+            // insert labels
+            if (!empty($board['labelNames'])) {
+                foreach ($board['labelNames'] as $label) {
+                    if (!empty($label['name'])) {
+                        $qry_val_arr = array(
+                            utf8_decode($label['name'])
+                        );
+                        $check_label = executeQuery('SELECT id FROM labels WHERE name = $1', $qry_val_arr);
+                        if (empty($check_label)) {
+                            $qry_val_arr = array(
+                                utf8_decode($label['name'])
+                            );
+                            $check_label = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO labels (created, modified, name) VALUES (now(), now(), $1) RETURNING id', $qry_val_arr));
+                        }
+                        $labels[$label['id']] = $check_label['id'];
+                    }
+                }
+            }
+            // insert lists
+            if (!empty($board['lists'])) {
+                $i = 0;
+                foreach ($board['lists'] as $list) {
+                    if ((!empty($board['card_count'][$list['gid']]) && $board['card_count'][$list['gid']] > 0) || (!empty($board['todo_template']) && $list['gid'] <= 3)) {
+                        $i+= 1;
+                        $qry_val_arr = array(
+                            utf8_decode($list['name']) ,
+                            $new_board['id'],
+                            $i,
+                            $user_id
+                        );
+                        $_list = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO lists (created, modified, name, board_id, position, user_id) VALUES (now(), now(), $1, $2, $3, $4) RETURNING id', $qry_val_arr));
+                        $lists[$list['gid']] = $_list['id'];
+                    }
+                }
+            }
+            // insert board members
+            if (!empty($board['subscribers'])) {
+                foreach ($board['subscribers'] as $boarduser) {
+                    if (empty($users[$boarduser['gid']])) {
+                        $member = array(
+                            'id' => $boarduser['gid'],
+                            'username' => $boarduser['name'],
+                            'fullName' => $boarduser['name'],
+                            'avatarUrl' => null,
+                            'initials' => strtoupper(substr($boarduser['name'], 0, 1))
+                        );
+                        $users = importMember($member, $new_board, 'asana');
+                        $userNames[$boarduser['gid']] = $users[$boarduser['gid']];
+                    }
+                }
+            }
+            // insert cards
+            if (!empty($board['cards'])) {
+                $i = 0;
+                foreach ($board['cards'] as $card) {
+                    $i+= 1;
+                    $is_closed = !empty($card['is_archived']) ? 'true' : 'false';
+                    $date = (!empty($card['due_on'])) ? $card['due_on'] : null;
+                    $desc = (!empty($card['notes'])) ? utf8_decode($card['notes']) : null;
+                    $qry_val_arr = array(
+                        $new_board['id'],
+                        $lists[$card['idList']],
+                        utf8_decode($card['name']) ,
+                        $desc,
+                        $is_closed,
+                        $i,
+                        $date,
+                        $user_id
+                    );
+                    $_card = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO cards (created, modified, board_id, list_id, name, description, is_archived, position, due_date, user_id) VALUES (now(), now(), $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id', $qry_val_arr));
+                    $cards[$card['id']] = $_card['id'];
+                    if (!empty($card['tags'])) {
+                        foreach ($card['tags'] as $label) {
+                            $qry_val_arr = array(
+                                $new_board['id'],
+                                $lists[$card['idList']],
+                                $_card['id'],
+                                $labels[$label['id']]
+                            );
+                            pg_query_params($db_lnk, 'INSERT INTO cards_labels (created, modified, board_id, list_id, card_id, label_id) VALUES (now(), now(), $1, $2, $3, $4)', $qry_val_arr);
+                        }
+                    }
+                    if (!empty($card['likes']) && !empty($card['liked'])) {
+                        foreach ($card['likes'] as $like) {
+                            $qry_val_arr = array(
+                                $_card['id'],
+                                $userNames[$like['user']['gid']],
+                            );
+                            pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO card_voters (created, modified, card_id, user_id) VALUES (now(), now(), $1, $2) RETURNING id', $qry_val_arr));
+                        }
+                    }
+                    if (!empty($card['followers'])) {
+                        foreach ($card['followers'] as $follower) {
+                            $qry_val_arr = array(
+                                $_card['id'],
+                                $userNames[$follower['gid']],
+                                'true'
+                            );
+                            pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO card_subscribers (created, modified, card_id, user_id, is_subscribed) VALUES (now(), now(), $1, $2,$3) RETURNING id', $qry_val_arr));
+                        }
+                    }
+                    if (!empty($card['assignee'])) {
+                        $qry_val_arr = array(
+                            $_card['id'],
+                            $userNames[$card['assignee']['gid']]
+                        );
+                        pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO cards_users (created, modified, card_id, user_id) VALUES (now(), now(), $1, $2) RETURNING id', $qry_val_arr));
+                    }
+                }
+            }
+            return $new_board;
+        }
+    }
+}
+/**
+ * Import Taskwarrior board
+ *
+ * @param array $board Boards from Taskwarrior
+ *
+ * @return mixed
+ */
+function importTaskWarriorBoard($jsonArr = array())
+{
+    global $r_debug, $db_lnk, $authUser, $_server_domain_url;
+    $users = $userNames = $lists = $cards = $labels = array();
+    $board['lists'] = array(
+        array(
+            'gid' => 1,
+            'name' => "Todo"
+        ) ,
+        array(
+            'gid' => 2,
+            'name' => "Doing"
+        ) ,
+        array(
+            'gid' => 3,
+            'name' => "Done"
+        )
+    );
+    if (!empty($jsonArr)) {
+        foreach ($jsonArr as $key => $json) {
+            if (!empty($json['status']) && $json['status'] !== 'deleted') {
+                if (!empty($json['project']) && isset($json['project'])) {
+                    $board_name = $json['project'];
+                }
+                if ($json['status'] == 'completed') {
+                    $tmp_list = $board['lists'][2];
+                } else if ($json['status'] == 'waiting' || $json['status'] == 'recurring') {
+                    $tmp_list = $board['lists'][1];
+                } else {
+                    $tmp_list = $board['lists'][0];
+                }
+                $json['idList'] = $tmp_list['gid'];
+                $board['cards'][] = $json;
+                if (!empty($json['tags'])) {
+                    $board['labelNames'] = (empty($board['labelNames'])) ? [] : $board['labelNames'];
+                    foreach ($json['tags'] as $tag) {
+                        if (!in_array($tag, $board['labelNames'])) {
+                            $board['labelNames'][] = $tag;
+                        }
+                    }
+                }
+            }
+        }
+        $board_name = (!empty($board_name)) ? $board_name : 'Taskwarrior';
+        if (!empty($board_name)) {
+            $user_id = $authUser['id'];
+            $qry_val_arr = array(
+                utf8_decode($board_name) ,
+                $user_id,
+                0
+            );
+            $new_board = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO boards (created, modified, name, user_id, board_visibility) VALUES (now(), now(), $1, $2, $3) RETURNING id', $qry_val_arr));
+            $server = strtolower($_SERVER['SERVER_SOFTWARE']);
+            if (strpos($server, 'apache') !== false) {
+                ob_end_clean();
+                header("Connection: close\r\n");
+                header("Content-Encoding: none\r\n");
+                ignore_user_abort(true); // optional
+                ob_start();
+                echo json_encode($new_board);
+                $size = ob_get_length();
+                header("Content-Length: $size");
+                ob_end_flush(); // Strange behaviour, will not work
+                flush(); // Unless both are called !
+                ob_end_clean();
+            } else {
+                echo json_encode($new_board);
+                fastcgi_finish_request();
+            }
+            // insert current user as board member
+            $qry_val_arr = array(
+                $authUser['id'],
+                $new_board['id'],
+                1
+            );
+            pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO boards_users (created, modified, user_id, board_id, board_user_role_id) VALUES (now(), now(), $1, $2, $3) RETURNING id', $qry_val_arr));
+            $auto_subscribe_on_board = (AUTO_SUBSCRIBE_ON_BOARD === 'Enabled') ? 'true' : false;
+            if ($auto_subscribe_on_board) {
+                $qry_val_arr = array(
+                    $authUser['id'],
+                    $new_board['id'],
+                    true
+                );
+                pg_query_params($db_lnk, 'INSERT INTO board_subscribers (created, modified, user_id, board_id, is_subscribed) VALUES (now(), now(), $1, $2, $3)', $qry_val_arr);
+            }
+            // insert labels
+            if (!empty($board['labelNames'])) {
+                foreach ($board['labelNames'] as $label) {
+                    if (!empty($label)) {
+                        $qry_val_arr = array(
+                            utf8_decode($label)
+                        );
+                        $check_label = executeQuery('SELECT id FROM labels WHERE name = $1', $qry_val_arr);
+                        if (empty($check_label)) {
+                            $qry_val_arr = array(
+                                utf8_decode($label)
+                            );
+                            $check_label = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO labels (created, modified, name) VALUES (now(), now(), $1) RETURNING id', $qry_val_arr));
+                        }
+                        $labels[utf8_decode($label) ] = $check_label['id'];
+                    }
+                }
+            }
+            // insert lists
+            if (!empty($board['lists'])) {
+                $i = 0;
+                foreach ($board['lists'] as $list) {
+                    $i+= 1;
+                    $qry_val_arr = array(
+                        utf8_decode($list['name']) ,
+                        $new_board['id'],
+                        $i,
+                        $user_id
+                    );
+                    $_list = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO lists (created, modified, name, board_id, position, user_id) VALUES (now(), now(), $1, $2, $3, $4) RETURNING id', $qry_val_arr));
+                    $lists[$list['gid']] = $_list['id'];
+                }
+            }
+            // insert cards
+            if (!empty($board['cards'])) {
+                $i = 0;
+                foreach ($board['cards'] as $card) {
+                    $i+= 1;
+                    $is_closed = !empty($card['is_archived']) ? 'true' : 'false';
+                    $date = (!empty($card['due'])) ? $card['due'] : null;
+                    $desc = (!empty($card['notes'])) ? utf8_decode($card['notes']) : null;
+                    $qry_val_arr = array(
+                        $new_board['id'],
+                        $lists[$card['idList']],
+                        utf8_decode($card['description']) ,
+                        $desc,
+                        $is_closed,
+                        $i,
+                        $date,
+                        $user_id
+                    );
+                    $_card = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO cards (created, modified, board_id, list_id, name, description, is_archived, position, due_date, user_id) VALUES (now(), now(), $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id', $qry_val_arr));
+                    $cards[$card['id']] = $_card['id'];
+                    if (!empty($card['tags'])) {
+                        foreach ($card['tags'] as $label) {
+                            $qry_val_arr = array(
+                                $new_board['id'],
+                                $lists[$card['idList']],
+                                $_card['id'],
+                                $labels[utf8_decode($label) ]
+                            );
+                            pg_query_params($db_lnk, 'INSERT INTO cards_labels (created, modified, board_id, list_id, card_id, label_id) VALUES (now(), now(), $1, $2, $3, $4)', $qry_val_arr);
+                        }
+                    }
+                }
+            }
+            return $new_board;
+        }
     }
 }
 /**
@@ -2824,7 +3306,7 @@ function is_plugin_enabled($plugin_name)
     }
     return false;
 }
-function importMember($member, $new_board)
+function importMember($member, $new_board, $import_type)
 {
     $qry_val_arr = array(
         utf8_decode($member['username'])
@@ -2858,9 +3340,10 @@ function importMember($member, $new_board)
             $member['is_card_members_notifications_enabled'],
             $member['is_card_labels_notifications_enabled'],
             $member['is_card_checklists_notifications_enabled'],
-            $member['is_card_attachments_notifications_enabled']
+            $member['is_card_attachments_notifications_enabled'],
+            $import_type . '-' . utf8_decode($member['username']) . '@mailinator.com',
         );
-        $user = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO users (created, modified, role_id, username, email, password, is_active, is_email_confirmed, initials, full_name, is_send_newsletter, default_desktop_notification, is_list_notifications_enabled, is_card_notifications_enabled, is_card_members_notifications_enabled, is_card_labels_notifications_enabled, is_card_checklists_notifications_enabled, is_card_attachments_notifications_enabled) VALUES (now(), now(), 2, $1, \'\', $2, true, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id', $qry_val_arr));
+        $user = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO users (created, modified, role_id, username, email, password, is_active, is_email_confirmed, initials, full_name, is_send_newsletter, default_desktop_notification, is_list_notifications_enabled, is_card_notifications_enabled, is_card_members_notifications_enabled, is_card_labels_notifications_enabled, is_card_checklists_notifications_enabled, is_card_attachments_notifications_enabled) VALUES (now(), now(), 2, $1, $13, $2, true, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id', $qry_val_arr));
         $users[$member['id']] = $user['id'];
         if (isset($member['avatarUrl']) && !empty($member['avatarUrl'])) {
             $mediadir = MEDIA_PATH . DS . 'User' . DS . $user['id'];

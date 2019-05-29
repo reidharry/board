@@ -23,7 +23,8 @@ App.CardCheckListItemView = Backbone.View.extend({
         if (!_.isUndefined(this.model) && this.model !== null) {
             this.model.showImage = this.showImage;
         }
-        _.bindAll(this, 'render');
+        _.bindAll(this, 'render', 'renderChecklistitemsCollection');
+        this.model.bind('change:is_completed', this.renderChecklistitemsCollection);
         var board_user_role_id = this.model.board_users.findWhere({
             user_id: parseInt(authuser.user.id)
         });
@@ -76,27 +77,62 @@ App.CardCheckListItemView = Backbone.View.extend({
      */
     itemSort: function(ev, ui) {
         var target = $(ev.target);
-        var data = {};
+        var data = {},
+            before, after, difference, newPosition;
         var checklist_id = parseInt(target.parents('.js-checklist-items-sorting:first').data('checklist_id'));
-
         var previous_item_id = target.prev('.js-checklist-item').data('item_id');
         var next_item_id = target.next('.js-checklist-item').data('item_id');
-
+        var checklistItems = this.model.card.list.collection.board.checklist_items.where({
+            card_id: parseInt(this.model.card.id)
+        });
+        var checklist_items = new App.CheckListItemCollection();
+        checklist_items.add(checklistItems);
         this.model.url = api_url + 'boards/' + this.model.card.get('board_id') + '/lists/' + this.model.card.get('list_id') + '/cards/' + this.model.card.id + '/checklists/' + this.model.attributes.checklist_id + '/items/' + this.model.id + '.json';
         if ((typeof previous_item_id == 'undefined' && typeof next_item_id == 'undefined') || checklist_id != this.model.attributes.checklist_id) {
+            this.model.card.list.collection.board.checklists.get(this.model.attributes.checklist_id).checklist_items.remove(this.model, {
+                silent: true
+            });
             data.checklist_id = checklist_id;
         }
         if (typeof previous_item_id != 'undefined') {
-            this.model.moveAfter(previous_item_id);
+            before = checklist_items.get(previous_item_id);
+            after = checklist_items.next(before);
+            if (typeof after == 'undefined') {
+                afterPosition = before.position() + 2;
+            } else {
+                afterPosition = after.position();
+            }
+            difference = (afterPosition - before.position()) / 2;
+            newPosition = difference + before.position();
+            this.model.set({
+                position: newPosition
+            });
         } else if (typeof next_item_id != 'undefined') {
-            this.model.moveBefore(next_item_id);
+            after = checklist_items.get(next_item_id);
+            before = checklist_items.previous(after);
+            if (typeof before == 'undefined') {
+                beforePosition = 0.0;
+            } else {
+                beforePosition = before.position();
+            }
+            difference = (after.position() - beforePosition) / 2;
+            newPosition = difference + beforePosition;
+            this.model.set({
+                position: newPosition
+            });
+            this.model.collection.sort({
+                silent: true
+            });
         }
         this.model.set('checklist_id', checklist_id);
         data.position = this.model.attributes.position;
-
+        this.model.card.list.collection.board.checklists.get(checklist_id).checklist_items.add(this.model, {
+            silent: true
+        });
         this.model.save(data, {
             patch: true
         });
+        this.renderProgress();
     },
     /**
      * render()
@@ -115,7 +151,16 @@ App.CardCheckListItemView = Backbone.View.extend({
         emojify.run();
         return this;
     },
-
+    /**
+     * renderChecklistitemsCollection()
+     * display checklist item completed progress bar
+     * return object
+     *
+     */
+    renderChecklistitemsCollection: function() {
+        this.render();
+        this.renderProgress();
+    },
     /**
      * renderProgress()
      * display checklist item completed progress bar
@@ -199,7 +244,20 @@ App.CardCheckListItemView = Backbone.View.extend({
         this.model.set(data);
         this.render();
         this.model.save(data, {
-            patch: true
+            patch: true,
+            success: function(model, response) {
+                if (!_.isUndefined(response.activity)) {
+                    response.activity = activityCommentReplace(response.activity);
+                    var activity = new App.Activity();
+                    activity.set(response.activity);
+                    var view_act = new App.ActivityView({
+                        model: activity
+                    });
+                    self.model.activities.unshift(activity);
+                    var view_activity = $('#js-card-activities-' + parseInt(response.activity.card_id));
+                    view_activity.prepend(view_act.render().el);
+                }
+            }
         });
         emojify.run();
         return false;
@@ -251,7 +309,21 @@ App.CardCheckListItemView = Backbone.View.extend({
         });
         this.render();
         this.renderProgress();
-        this.model.destroy();
+        this.model.destroy({
+            success: function(model, response) {
+                if (!_.isUndefined(response.activity)) {
+                    response.activity = activityCommentReplace(response.activity);
+                    var activity = new App.Activity();
+                    activity.set(response.activity);
+                    var view_act = new App.ActivityView({
+                        model: activity
+                    });
+                    self.model.activities.unshift(activity);
+                    var view_activity = $('#js-card-activities-' + parseInt(response.activity.card_id));
+                    view_activity.prepend(view_act.render().el);
+                }
+            }
+        });
         return false;
     },
     /**
@@ -278,6 +350,7 @@ App.CardCheckListItemView = Backbone.View.extend({
             patch: true,
             success: function(model, response) {
                 var activity = new App.Activity();
+                response.activity = activityCommentReplace(response.activity);
                 activity.set(response.activity);
                 var view = new App.ActivityView({
                     model: activity
@@ -314,6 +387,7 @@ App.CardCheckListItemView = Backbone.View.extend({
             patch: true,
             success: function(model, response) {
                 var activity = new App.Activity();
+                response.activity = activityCommentReplace(response.activity);
                 activity.set(response.activity);
                 var view = new App.ActivityView({
                     model: activity

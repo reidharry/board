@@ -184,6 +184,7 @@ App.CardCheckListView = Backbone.View.extend({
         this.model.destroy({
             success: function(model, response, options) {
                 if (!_.isUndefined(response.activity)) {
+                    response.activity = activityCommentReplace(response.activity);
                     var activity = new App.Activity();
                     activity.set(response.activity);
                     var view_act = new App.ActivityView({
@@ -355,7 +356,7 @@ App.CardCheckListView = Backbone.View.extend({
         $(e.target).removeClass('js-show-checklist-item-add-form').addClass('hide').next('.js-checklist-item-add-form-view').html(new App.ChecklistItemAddFormView({
             model: this.model
         }).el);
-        $('.js-add-item').find('textarea').focus();
+        $('.js-new-checklist-item-' + this.model.attributes.id).focus();
     },
     /**
      * hideChecklistItemAddForm()
@@ -377,9 +378,9 @@ App.CardCheckListView = Backbone.View.extend({
      *
      */
     addChecklistItem: function(e) {
-        if (!$.trim($('#ChecklistItem').val()).length) {
+        if (!$.trim($(e.target).find('#ChecklistItem').val()).length) {
             $('.error-msg').remove();
-            $('<div class="error-msg text-primary h6">' + i18next.t('Whitespace is not allowed') + '</div>').insertAfter('#ChecklistItem');
+            $('<div class="error-msg text-primary h6">' + i18next.t('Whitespace is not allowed') + '</div>').insertAfter($(e.target).find('#ChecklistItem'));
             return false;
         } else {
             $('.error-msg').remove();
@@ -411,7 +412,7 @@ App.CardCheckListView = Backbone.View.extend({
                     self.renderItemsCollection(false);
                     checklist_item.save(data, {
                         success: function(model, response) {
-                            checklist_item.set('position', response.checklist_items[0].position);
+                            checklist_item.set('position', parseInt(response.checklist_items[0].position));
                             self.model.checklist_items.get(data.uuid).id = parseInt(response.checklist_items[0].id);
                             self.model.checklist_items.get(data.uuid).attributes.id = parseInt(response.checklist_items[0].id);
                             self.model.card.list.collection.board.checklist_items.get(data.uuid).attributes.id = parseInt(response.checklist_items[0].id);
@@ -419,6 +420,7 @@ App.CardCheckListView = Backbone.View.extend({
                             self.renderItemsCollection(false);
                             if (!_.isUndefined(response.activities)) {
                                 _.each(response.activities, function(_activity) {
+                                    _activity = activityCommentReplace(_activity);
                                     var activity = new App.Activity();
                                     activity.set(_activity);
                                     var view = new App.ActivityView({

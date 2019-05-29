@@ -44,12 +44,15 @@ App.BoardHeaderView = Backbone.View.extend({
         this.model.cards.bind('add', this.cardFilter, this);
         this.model.cards.bind('add', this.updateListView);
         this.model.cards.bind('remove', this.updateListView);
+        this.model.cards.bind('change:is_archived', this.updateListView);
+        this.model.cards.bind('change:comment_count', this.updateListView);
         this.model.lists.bind('remove', this.updateListView);
         this.model.bind('change:organization_id', this.render, this);
         this.model.bind('change:background_picture_url', this.showChangeBackground, this);
         this.model.bind('change:background_pattern_url', this.showChangeBackground, this);
         this.model.bind('change:music_name', this.showChangeBackground, this);
         this.model.bind('change:music_content', this.showChangeBackground, this);
+        this.model.bind('change:name', this.renderBoardName, this);
         this.model.board_users.bind('add', this.showFilters, this);
         this.model.board_users.bind('remove', this.showFilters, this);
         this.model.labels.bind('add', this.showFilters, this);
@@ -279,6 +282,7 @@ App.BoardHeaderView = Backbone.View.extend({
     },
 
     showBoardActions: function(e) {
+        $('.js-back-to-sidebar').trigger('click');
         var self = this;
         _(function() {
             if (self.model !== null && !_.isUndefined(self.model) && !_.isEmpty(self.model)) {
@@ -448,6 +452,16 @@ App.BoardHeaderView = Backbone.View.extend({
      * @return false
      *
      */
+    renderBoardName: function(e) {
+        var self = this;
+        if (!_.isUndefined(self.model.attributes) && (!_.isEmpty(self.model.attributes))) {
+            var el = this.$el;
+            if (el.find('.js-rename-board').length > 0) {
+                el.find('.js-rename-board').html('');
+                el.find('.js-rename-board').html('<strong>' + self.model.attributes.name + '</strong>');
+            }
+        }
+    },
     showArchivedItems: function(e) {
         this.page = 1;
         this.start = 0;
@@ -528,6 +542,7 @@ App.BoardHeaderView = Backbone.View.extend({
                                 self.start_filter++;
                                 card.acl_links = self.model.acl_links;
                                 card.board_users = self.model.board_users;
+                                card.board = self.model;
                                 var view = new App.ArchivedCardView({
                                     model: card
                                 });
@@ -562,6 +577,7 @@ App.BoardHeaderView = Backbone.View.extend({
                                 self.start++;
                                 card.acl_links = self.model.acl_links;
                                 card.board_users = self.model.board_users;
+                                card.board = self.model;
                                 var view = new App.ArchivedCardView({
                                     model: card
                                 });
@@ -817,6 +833,7 @@ App.BoardHeaderView = Backbone.View.extend({
         $('#boards-view').removeClass('col-xs-12');
         $('#switch-board-view').removeClass('calendar-view');
         $('#switch-board-view').addClass('col-xs-12');
+        $('#switch-board-view').addClass('board-listview');
         $('#switch-board-view').attr("id", "listview_table");
         $('li.js-switch-view').removeClass('active');
         $('a.js-switch-list-view').parent().addClass('active');
@@ -829,16 +846,19 @@ App.BoardHeaderView = Backbone.View.extend({
             });
         }
         var self = this;
+        if ($('div.js-board-view-' + self.model.id).length === 0) {
+            $('#content').html('<section id="boards-view" class="clearfix js-boards-view"><section class="row body-no-webkit-scrollbars"><div id="listview_table" class="clearfix js-board-view-' + self.model.id + ' col-xs-12 board-listview"></div><section></section>');
+        }
         $('div.js-board-view-' + self.model.id).html(new App.SwitchToListView({
             model: self.model
         }).el);
+        changeTitle('Board - ' + _.escape(self.model.attributes.name) + '- List');
         $('main').trigger('listViewRendered');
         var is_card_empty = true;
         var board_view = $('.js-card-list-view-' + self.model.attributes.id);
         var lists = self.model.lists;
         var list_length = lists.models.length;
-        for (var list_i = 0; list_i < list_length; list_i++) {
-            var list = lists.models[list_i];
+        self.model.lists.each(function(list) {
             list.board = self.model;
             list.board_users = self.model.board_users;
             list.labels = self.model.labels;
@@ -859,37 +879,53 @@ App.BoardHeaderView = Backbone.View.extend({
                 cards.reset(filtered_cards, {
                     silent: true
                 });
-                var card_length = cards.models.length;
-                for (var i = 0; i < card_length; i++) {
-                    var card = cards.models[i];
-                    card.list_name = _.escape(list.attributes.name);
-                    card.list_id = list.attributes.id;
-                    card.board_users = self.model.board_users;
-                    card.labels.add(card.attributes.card_labels, {
-                        silent: true
-                    });
-                    card.labels.setSortField('name', 'asc');
-                    card.labels.sort();
-                    card.cards.add(self.model.cards, {
-                        silent: true
-                    });
-                    card.list = list;
-                    card.board_activities.add(self.model.activities, {
-                        silent: true
-                    });
-                    card.users.setSortField('username', 'asc');
-                    card.users.sort();
-                    var view = new App.CardView({
-                        tagName: 'tr',
-                        className: 'card-list-view js-show-modal-card-view cur txt-aligns js-listview-list-id-' + card.attributes.list_id,
-                        id: 'js-card-' + card.attributes.id,
-                        model: card,
-                        template: 'list_view'
-                    });
-                    board_view.append(view.render().el);
-                }
+                cards.each(function(card) {
+                    if (parseInt(card.get('is_archived')) === 0) {
+                        var card_id = card.id;
+                        card.list_name = _.escape(list.attributes.name);
+                        card.list_id = list.attributes.id;
+                        card.board_users = self.model.board_users;
+                        var filter_labels = self.model.labels.filter(function(model) {
+                            return parseInt(model.get('card_id')) === parseInt(card_id);
+                        });
+                        var labels = new App.CardLabelCollection();
+                        labels.add(filter_labels, {
+                            silent: true
+                        });
+                        card.labels = labels;
+                        card.labels.setSortField('name', 'asc');
+                        card.labels.sort();
+                        card.card_voters.add(card.get('card_voters'), {
+                            silent: true
+                        });
+                        card.cards.add(self.model.cards, {
+                            silent: true
+                        });
+                        card.list = list;
+                        card.board_activities.add(self.model.activities, {
+                            silent: true
+                        });
+                        filter_attachments = self.model.attachments.where({
+                            card_id: parseInt(card.id)
+                        });
+                        card.attachments.add(filter_attachments, {
+                            silent: true
+                        });
+                        card.users.setSortField('username', 'asc');
+                        card.users.sort();
+                        card.board = self.model;
+                        var view = new App.CardView({
+                            tagName: 'tr',
+                            className: 'card-list-view js-show-modal-card-view cur txt-aligns js-listview-list-id-' + card.attributes.list_id,
+                            id: 'js-card-' + card.attributes.id,
+                            model: card,
+                            template: 'list_view'
+                        });
+                        board_view.append(view.render().el);
+                    }
+                });
             }
-        }
+        });
         if (is_card_empty) {
             var empty_view = new App.CardView({
                 tagName: 'tr',
@@ -919,6 +955,11 @@ App.BoardHeaderView = Backbone.View.extend({
         var current_param_split = Backbone.history.fragment.split('/');
         if (!_.isUndefined(current_param_split['2']) && current_param_split['2'] !== null && current_param_split['2'].indexOf('list') !== -1) {
             if (!_.isUndefined(e) && e.storeName === 'card') {
+                if (_.isUndefined(e.list) && self.model.lists.length) {
+                    e.list = self.model.lists.findWhere({
+                        id: parseInt(e.attributes.list_id)
+                    });
+                }
                 if (_.isUndefined(e.list_name) || _.isEmpty(e.list_name)) {
                     e.list_name = _.escape(e.list.attributes.name);
                 }
@@ -929,7 +970,6 @@ App.BoardHeaderView = Backbone.View.extend({
                 } else {
                     e.board_users = self.model.board_users;
                 }
-                console.log(e.attributes);
                 view = new App.CardView({
                     tagName: 'tr',
                     className: 'js-show-modal-card-view cur txt-aligns js-listview-list-id-' + e.attributes.list_id,
@@ -953,22 +993,12 @@ App.BoardHeaderView = Backbone.View.extend({
                             } else {
                                 self.model.cards.sortByColumn('position');
                             }
-                            self.model.cards.reset(filtered_cards);
-                            var bool = true;
-                            i = 0;
-                            var cards_length = self.model.cards.length;
-                            self.model.cards.each(function(card) {
-                                i++;
-                                if (bool) {
-                                    if (card.attributes.position >= e.attributes.position && parseInt(card.attributes.id) !== parseInt(e.attributes.id)) {
-                                        $('#js-card-' + card.attributes.id).before(view.render().el);
-                                        bool = false;
-                                    } else if (cards_length === i) {
-                                        $('.js-card-list-view-' + self.model.attributes.id).append(view.render().el);
-                                        bool = false;
-                                    }
-                                }
+                            var list_filtered_cards = self.model.cards.where({
+                                is_archived: 0,
+                                list_id: parseInt(e.attributes.list_id),
                             });
+                            e.list.cards.reset(list_filtered_cards);
+                            $('.js-card-list-view-' + self.model.attributes.id).append(view.render().el);
                         }
                     }
                 } else {
@@ -1012,6 +1042,7 @@ App.BoardHeaderView = Backbone.View.extend({
         $('.js-boards-view').attr('id', 'boards-view');
         $('#boards-view').addClass('col-xs-12');
         $('#switch-board-view').addClass('calendar-view');
+        $('#listview_table').attr("id", "switch-board-view");
         $('#switch-board-view').removeClass('board-viewlist col-xs-12');
         $('li.js-switch-view').removeClass('active');
         $('a.js-switch-calendar-view').parent().addClass('active');
@@ -1022,6 +1053,10 @@ App.BoardHeaderView = Backbone.View.extend({
                 trigger: false,
                 trigger_function: false,
             });
+        }
+        changeTitle('Board - ' + _.escape(self.model.attributes.name) + '- Calendar');
+        if ($('div.js-board-view-' + self.model.id).length === 0) {
+            $('#content').html('<section id="boards-view" class="clearfix js-boards-view"><section class="row body-no-webkit-scrollbars"><div id="listview_table" class="clearfix js-board-view-' + self.model.id + ' col-xs-12 board-listview"></div><section></section>');
         }
         $('div.js-board-view-' + this.model.id).html('');
         $('div.js-board-view-' + this.model.id).fullCalendar({
@@ -1320,8 +1355,6 @@ App.BoardHeaderView = Backbone.View.extend({
      */
     boardUserAvatarDropdown: function(e) {
         e.preventDefault();
-        $(e.currentTarget).addClass('open');
-        $(e.currentTarget).siblings('.dropdown').removeClass('open');
         return false;
     },
     /**
@@ -1466,12 +1499,12 @@ App.BoardHeaderView = Backbone.View.extend({
      * @return false
      *
      */
-    showArchivedListLists: function() {
-        if (this.start !== 0) {
-            this.start = 0;
+    showArchivedListLists: function(e) {
+        if (this.liststart !== 0) {
+            this.liststart = 0;
         }
-        if (this.page !== 1) {
-            this.page = 1;
+        if (this.listpage !== 1) {
+            this.listpage = 1;
         }
         var self = this;
         if (this.$el.find('.js-load-more-archived-cards').hasClass('show')) {
@@ -1631,28 +1664,33 @@ App.BoardHeaderView = Backbone.View.extend({
     sendCardTobard: function(e) {
         e.preventDefault();
         var card_id = $(e.currentTarget).data('card_id');
-        this.model.cards.findWhere({
-            id: parseInt(card_id)
-        }).set('is_archived', 0);
         var find_card = this.model.cards.findWhere({
             id: parseInt(card_id)
         });
+        var currentBoardList = App.current_board.lists.get(find_card.attributes.list_id);
+        if (!_.isUndefined(currentBoardList)) {
+            if (parseInt(currentBoardList.attributes.card_count) === 0) {
+                $('#js-card-listing-' + find_card.attributes.list_id).find('.js-list-placeholder-' + find_card.attributes.list_id).remove();
+                /* $('#js-card-listing-' + find_card.attributes.list_id).html(function(i, h) {
+                    return h.replace(/&nbsp;/g, '');
+                }); */
+            }
+        }
+        this.model.cards.findWhere({
+            id: parseInt(card_id)
+        }).set('is_archived', 0);
+
         var list = App.boards.get(find_card.attributes.board_id).lists.get(find_card.attributes.list_id);
         if (!_.isUndefined(list)) {
             list.set('card_count', list.attributes.card_count + 1, {
                 silent: true
             });
         }
-        var currentBoardList = App.current_board.lists.get(find_card.attributes.list_id);
+        currentBoardList = App.current_board.lists.get(find_card.attributes.list_id);
         if (!_.isUndefined(currentBoardList)) {
             currentBoardList.set('card_count', currentBoardList.attributes.card_count + 1, {
                 silent: true
             });
-            if (parseInt(currentBoardList.attributes.card_count) === 1) {
-                $('#js-card-listing-' + find_card.attributes.list_id).html(function(i, h) {
-                    return h.replace(/&nbsp;/g, '');
-                });
-            }
         }
         if (!_.isUndefined(APPS) && APPS !== null && !_.isUndefined(APPS.enabled_apps) && APPS.enabled_apps !== null && $.inArray('r_agile_wip', APPS.enabled_apps) !== -1) {
             if (list !== null && !_.isUndefined(list) && !_.isEmpty(list)) {
@@ -1721,6 +1759,8 @@ App.BoardHeaderView = Backbone.View.extend({
      */
     switchGridView: function(e) {
         $('body').addClass('modal-open');
+        $('li.js-switch-view').removeClass('active');
+        $('#listview_table').attr("id", "switch-board-view");
         e.preventDefault();
         app.navigate('#/board/' + this.model.id, {
             trigger: false,
@@ -2037,11 +2077,10 @@ App.BoardHeaderView = Backbone.View.extend({
         $('div#board_view_header').find('.js-clear-filter-btn').removeClass('hide').addClass('show');
         var current_param = Backbone.history.fragment.split('?');
         $('i.js-filter-icon').remove();
-
+        var self = this;
         var dictFilter = filter_getFilterObject(current_param, this.model.cards);
         var arrays = dictFilter.arrays;
         var filter_query = dictFilter.filter_query;
-
         if (_.isEmpty(arrays) && _.isEmpty(filter_query)) {
             _.each(this.model.lists.models, function(list) {
                 var cards = self.model.cards.filter(function(card) {
@@ -2052,7 +2091,7 @@ App.BoardHeaderView = Backbone.View.extend({
                 });
             });
         }
-        if (!_.isEmpty(arrays)) {
+        if (!_.isEmpty(arrays) && !_.isEmpty(filter_query)) {
             var result = arrays.shift().filter(function(v) {
                 return arrays.every(function(a) {
                     return a.indexOf(v) !== -1;
@@ -2069,10 +2108,17 @@ App.BoardHeaderView = Backbone.View.extend({
                 var filter = !_.isEmpty(filter_query) && unfilteredIds.indexOf(card.get('id')) === -1;
                 card.set('is_filtered', filter);
             });
+            _.each(this.model.lists.models, function(list) {
+                if (!$('#js-card-listing-' + list.id).find('.panel').is(':visible') && (!_.isUndefined(list.attributes.card_count) && list.attributes.card_count !== 0 && list.attributes.card_count !== null && !isNaN(list.attributes.card_count))) {
+                    $('#js-card-listing-' + list.id).prepend('<span class="js-list-placeholder-' + list.id + '">&nbsp;</span>');
+                }
+            });
             if (!_.isUndefined(unfilteredIds) && !_.isEmpty(unfilteredIds)) {
+                if (!$('#js-empty-filter-cards').hasClass('hide')) {
+                    $('#js-empty-filter-cards').addClass('hide');
+                }
+            } else if ($('#js-empty-filter-cards').hasClass('hide')) {
                 $('#js-empty-filter-cards').removeClass('hide');
-            } else if (!$('#js-empty-filter-cards').hasClass('hide')) {
-                $('#js-empty-filter-cards').addClass('hide');
             }
         }
         if (filter_query) {
@@ -2080,6 +2126,10 @@ App.BoardHeaderView = Backbone.View.extend({
                 $('.js-clear-all').removeClass('text-muted');
             }
             filter_query = '?filter=' + filter_query.slice(0, -1);
+            var split_length = current_param[0].split('board/');
+            if (split_length.length === 2) {
+                current_param[0] = 'board/' + split_length[1];
+            }
             app.navigate('#/' + current_param[0] + filter_query, {
                 trigger: true,
                 trigger_function: false,
@@ -2259,6 +2309,9 @@ App.BoardHeaderView = Backbone.View.extend({
             _.each(cards, function(card, key) {
                 card.set('is_filtered', false);
             });
+            if (list.attributes.card_count !== 0 && $('#js-card-listing-' + list.id).find('.js-list-placeholder-' + list.id).length > 0) {
+                $('#js-card-listing-' + list.id).find('.js-list-placeholder-' + list.id).remove();
+            }
         });
         app.navigate('#/board/' + this.model.attributes.id + filter, {
             trigger: false,

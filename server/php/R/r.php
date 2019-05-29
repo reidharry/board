@@ -351,7 +351,11 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
                 $condition.= (!empty($r_resource_filters['last_activity_id'])) ? 'al.id > $' . $i : '';
                 $i++;
             }
-            $sql = 'SELECT row_to_json(d) FROM (SELECT * FROM activities_listing al ' . $condition . ' ORDER BY id DESC LIMIT ' . PAGING_COUNT . ') as d';
+            $direction = 'DESC';
+            if (!empty($r_resource_filters['direction']) && isset($r_resource_filters['direction'])) {
+                $direction = $r_resource_filters['direction'];
+            }
+            $sql = 'SELECT row_to_json(d) FROM (SELECT * FROM activities_listing al ' . $condition . ' ORDER BY id ' . $direction . ' LIMIT ' . PAGING_COUNT . ') as d';
             $c_sql = 'SELECT COUNT(*) FROM activities_listing al' . $condition;
         } else {
             if (!empty($authUser) && $authUser['id'] != $r_resource_vars['users']) {
@@ -412,7 +416,11 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
                 if (!empty($r_resource_filters['last_activity_id'])) {
                     $condition = ' AND al.id > $3';
                 }
-                $sql = 'SELECT row_to_json(d) FROM (SELECT * FROM activities_listing al WHERE (board_id = ANY ( $1 ) OR organization_id  = ANY ( $2 ))' . $condition . ' ORDER BY id DESC LIMIT ' . PAGING_COUNT . ') as d';
+                $direction = 'DESC';
+                if (!empty($r_resource_filters['direction']) && isset($r_resource_filters['direction'])) {
+                    $direction = $r_resource_filters['direction'];
+                }
+                $sql = 'SELECT row_to_json(d) FROM (SELECT * FROM activities_listing al WHERE (board_id = ANY ( $1 ) OR organization_id  = ANY ( $2 ))' . $condition . ' ORDER BY id ' . $direction . ' LIMIT ' . PAGING_COUNT . ') as d';
                 $c_sql = 'SELECT COUNT(*) FROM activities_listing al WHERE (board_id = ANY ( $1 ) OR organization_id  = ANY ( $2 ))' . $condition;
                 array_push($pg_params, '{' . implode(',', $board_ids) . '}', '{' . implode(',', $org_ids) . '}');
             } else if (!empty($r_resource_filters['board_id']) && $r_resource_filters['board_id'] && $r_resource_filters['type'] == 'board_user_activity') {
@@ -883,6 +891,14 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
                             }
                         }
                     }
+                    if (!empty($obj['organization_id']) && $obj['organization_id'] !== 0) {
+                        $obj['organization_users'] = array();
+                        $organization_user_sql = 'SELECT id, organization_id, user_id  FROM organizations_users WHERE organization_id = ' . $obj['organization_id'] . 'ORDER BY id ASC';
+                        $organization_user_result = pg_query_params($db_lnk, $organization_user_sql, array());
+                        while ($row = pg_fetch_assoc($organization_user_result)) {
+                            $obj['organization_users'][] = $row;
+                        }
+                    }
                     if (!empty($_metadata)) {
                         $data['data'][] = $obj;
                     } else {
@@ -1053,6 +1069,14 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
                             $obj['board_user_roles'] = array();
                             while ($row = pg_fetch_assoc($board_user_roles_result)) {
                                 $obj['board_user_roles'][] = json_decode($row['row_to_json'], true);
+                            }
+                            if (!empty($obj['organization_id']) && $obj['organization_id'] !== 0) {
+                                $obj['organization_users'] = array();
+                                $organization_user_sql = 'SELECT id, organization_id, user_id  FROM organizations_users WHERE organization_id = ' . $obj['organization_id'] . 'ORDER BY id ASC';
+                                $organization_user_result = pg_query_params($db_lnk, $organization_user_sql, array());
+                                while ($row = pg_fetch_assoc($organization_user_result)) {
+                                    $obj['organization_users'][] = $row;
+                                }
                             }
                             $data = $obj;
                         }
@@ -1352,6 +1376,15 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
                                         $obj['board_activities'][$k]['difference'] = nl2br(getRevisiondifference($revisions['old_value'], ''));
                                     }
                                 }
+                            }
+                        }
+                        if (!empty($r_resource_filters['view']) && $r_resource_filters['view'] === 'modal_card' && isset($r_resource_filters['view'])) {
+                            $replaceContent = array(
+                                'the card ##CARD_LINK##' => 'this card',
+                            );
+                            $obj['comment'] = strtr($obj['comment'], $replaceContent);
+                            if ($obj['type'] === 'add_card') {
+                                $obj['comment'] = '##USER_NAME## added this card';
                             }
                         }
                         $obj = ActivityHandler::getActivitiesObj($obj);
@@ -1665,6 +1698,7 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
                 'value' => implode($json['lists'], ', ')
             );
         }
+        sort($response);
         echo json_encode($response);
         break;
 
@@ -1693,8 +1727,8 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
 
     case '/boards/?/cards/search':
         $user_id = (!empty($authUser['id'])) ? $authUser['id'] : 0;
-        $sql = 'SELECT row_to_json(d) FROM (SELECT DISTINCT c.id, c.name, bu.board_id FROM boards_users bu join cards c on c.board_id = bu.board_id WHERE bu.board_id IN (SELECT board_id FROM boards_users WHERE user_id = $1) AND c.name  LIKE $2 ORDER BY id ASC) as d';
-        array_push($pg_params, $user_id, '%' . $r_resource_filters['q'] . '%');
+        $sql = 'SELECT row_to_json(d) FROM (SELECT DISTINCT c.id, c.name, bu.board_id, c.list_id FROM boards_users bu join cards c on c.board_id = bu.board_id WHERE bu.board_id IN (SELECT board_id FROM boards_users WHERE user_id = $1 ) AND c.name  LIKE $2 AND  c.board_id = $3 ORDER BY id ASC) as d';
+        array_push($pg_params, $user_id, '%' . $r_resource_filters['q'] . '%', $r_resource_vars['boards']);
         if (empty($r_resource_filters['q'])) {
             $sql = false;
             $response = array();
@@ -1705,7 +1739,13 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
                 $data = array();
                 while ($row = pg_fetch_row($result)) {
                     $obj = json_decode($row[0], true);
-                    $data[] = $obj;
+                    $obj_val_arr = array(
+                        $obj['list_id']
+                    );
+                    $list_exist = executeQuery('SELECT * FROM lists WHERE id = $1', $obj_val_arr);
+                    if (!empty($list_exist)) {
+                        $data[] = $obj;
+                    }
                 }
                 echo json_encode($data);
             } else {
@@ -1956,6 +1996,9 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
     default:
         $plugin_url['ElasticSearch'] = array(
             '/search'
+        );
+        $plugin_url['SparkPost'] = array(
+            '/users/?/sparkpost_test_mail'
         );
         $plugin_url['CardTemplate'] = array(
             '/boards/?/card_template',
@@ -3024,6 +3067,42 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
             } else {
                 $response['error'] = 'Unable to import. please try again.';
             }
+        } elseif (!empty($_FILES['board_import_asana'])) {
+            if ($_FILES['board_import_asana']['error'] == 0) {
+                $get_files = file_get_contents($_FILES['board_import_asana']['tmp_name']);
+                $utf8_encoded_content = utf8_encode($get_files);
+                if (version_compare(phpversion() , '5.4.0', '<')) {
+                    $imported_board = json_decode($utf8_encoded_content, true, 512);
+                } else {
+                    $imported_board = json_decode($utf8_encoded_content, true, 512, JSON_UNESCAPED_UNICODE);
+                }
+                if (!empty($imported_board)) {
+                    $board = importAsanaBoard($imported_board['data']);
+                    $response['id'] = $board['id'];
+                } else {
+                    $response['error'] = 'Invalid file format. Upload json file';
+                }
+            } else {
+                $response['error'] = 'Unable to import. please try again.';
+            }
+        } elseif (!empty($_FILES['board_import_taskwarrior'])) {
+            if ($_FILES['board_import_taskwarrior']['error'] == 0) {
+                $get_files = file_get_contents($_FILES['board_import_taskwarrior']['tmp_name']);
+                $utf8_encoded_content = utf8_encode($get_files);
+                if (version_compare(phpversion() , '5.4.0', '<')) {
+                    $imported_board = json_decode($utf8_encoded_content, true, 512);
+                } else {
+                    $imported_board = json_decode($utf8_encoded_content, true, 512, JSON_UNESCAPED_UNICODE);
+                }
+                if (!empty($imported_board)) {
+                    $board = importTaskWarriorBoard($imported_board);
+                    $response['id'] = $board['id'];
+                } else {
+                    $response['error'] = 'Invalid file format. Upload json file';
+                }
+            } else {
+                $response['error'] = 'Unable to import. please try again.';
+            }
         } else {
             $table_name = 'boards';
             $qry_val_arr = array(
@@ -3943,6 +4022,18 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 $s_result = pg_query_params($db_lnk, 'SELECT * FROM lists_listing WHERE id = $1', $qry_val_arr);
                 $list = pg_fetch_assoc($s_result);
                 $response['list'] = $list;
+                if (!empty($response['list'])) {
+                    if (is_plugin_enabled('r_custom_fields')) {
+                        $response['custom_fields'] = array();
+                        $conditions = array(
+                            $response['list']['board_id']
+                        );
+                        $custom_fields = pg_query_params($db_lnk, 'SELECT * FROM custom_fields_listing WHERE board_id IS NULL or board_id = $1 ORDER BY position ASC', $conditions);
+                        while ($custom_field = pg_fetch_assoc($custom_fields)) {
+                            $response['custom_fields'][] = $custom_field;
+                        }
+                    }
+                }
                 $qry_val_arr = array(
                     $foreign_ids['list_id']
                 );
@@ -4154,7 +4245,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                                         $foreign_ids['board_id'] = $r_post['board_id'];
                                         $foreign_ids['list_id'] = $r_post['list_id'];
                                         $foreign_ids['card_id'] = $r_post['card_id'];
-                                        $comment = '##USER_NAME## added attachment to this card ##CARD_LINK##';
+                                        $comment = '##USER_NAME## added attachment to the card ##CARD_LINK##';
                                         $response_file['activity'] = insertActivity($userID, $comment, 'add_card_attachment', $foreign_ids, null, $response_file['card_attachments'][$i]['id']);
                                         foreach ($thumbsizes['CardAttachment'] as $key => $value) {
                                             $imgdir = IMG_PATH . DS . $key . DS . 'CardAttachment' . DS . $response_file['card_attachments'][$i]['id'];
@@ -4186,7 +4277,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                             $foreign_ids['board_id'] = $r_post['board_id'];
                             $foreign_ids['list_id'] = $r_post['list_id'];
                             $foreign_ids['card_id'] = $r_post['card_id'];
-                            $comment = '##USER_NAME## added attachment to this card ##CARD_LINK##';
+                            $comment = '##USER_NAME## added attachment to the card ##CARD_LINK##';
                             $response_file['activity'] = insertActivity($userID, $comment, 'add_card_attachment', $foreign_ids, null, $response_file['card_attachments'][$i]['id']);
                             $i++;
                         }
@@ -4205,7 +4296,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                                 $foreign_ids['board_id'] = $r_post['board_id'];
                                 $foreign_ids['list_id'] = $r_post['list_id'];
                                 $foreign_ids['card_id'] = $r_post['card_id'];
-                                $comment = '##USER_NAME## added attachment to this card ##CARD_LINK##';
+                                $comment = '##USER_NAME## added attachment to the card ##CARD_LINK##';
                                 $response_file['activity'] = insertActivity($userID, $comment, 'add_card_attachment', $foreign_ids, null, $row['id']);
                                 foreach ($thumbsizes['CardAttachment'] as $key => $value) {
                                     $mediadir = IMG_PATH . DS . $key . DS . 'CardAttachment' . DS . $row['id'];
@@ -4234,7 +4325,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                             $member
                         );
                         $_user = executeQuery('SELECT username FROM users WHERE id = $1', $qry_val_arr);
-                        $comment = '##USER_NAME## added "' . $_user['username'] . '" as member to this card ##CARD_LINK##';
+                        $comment = '##USER_NAME## added "' . $_user['username'] . '" as member to the card ##CARD_LINK##';
                         $response['activity'] = insertActivity($userID, $comment, 'add_card_user', $foreign_ids, '', $card_user['id']);
                     }
                 }
@@ -4270,7 +4361,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                         );
                         pg_query_params($db_lnk, 'INSERT INTO cards_labels (created, modified, card_id, label_id, board_id, list_id) VALUES (now(), now(), $1, $2, $3, $4) RETURNING *', $qry_val_arr);
                     }
-                    $comment = '##USER_NAME## added label(s) to this card ##CARD_LINK## - ' . $names;
+                    $comment = '##USER_NAME## added label(s) to the card ##CARD_LINK## - ' . $names;
                     insertActivity($userID, $comment, 'add_card_label', $foreign_ids, null, $r_post['label_id']);
                 }
                 if (!empty($r_post['cards_checklists_card_id'])) {
@@ -4389,6 +4480,15 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
         $r_post['token'] = $_GET['token'];
         if (empty($r_post['user_id'])) {
             $r_post['user_id'] = $authUser['id'];
+        }
+        if (empty($r_post['card_id'])) {
+            $r_post['card_id'] = $r_resource_vars['cards'];
+        }
+        if (empty($r_post['list_id'])) {
+            $r_post['list_id'] = $r_resource_vars['lists'];
+        }
+        if (empty($r_post['board_id'])) {
+            $r_post['board_id'] = $r_resource_vars['boards'];
         }
         if (!empty($sql)) {
             $post = getbindValues($table_name, $r_post);
@@ -4596,7 +4696,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                         $foreign_ids['board_id'] = $r_resource_vars['boards'];
                         $foreign_ids['list_id'] = $r_resource_vars['lists'];
                         $foreign_ids['card_id'] = $r_resource_vars['cards'];
-                        $comment = '##USER_NAME## added attachment to this card ##CARD_LINK##';
+                        $comment = '##USER_NAME## added attachment to the card ##CARD_LINK##';
                         $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_attachment', $foreign_ids, null, $response['card_attachments'][$i]['id']);
                         foreach ($thumbsizes['CardAttachment'] as $key => $value) {
                             $imgdir = IMG_PATH . DS . $key . DS . 'CardAttachment' . DS . $response['card_attachments'][$i]['id'];
@@ -4637,7 +4737,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                     $foreign_ids['board_id'] = $r_resource_vars['boards'];
                     $foreign_ids['list_id'] = $r_resource_vars['lists'];
                     $foreign_ids['card_id'] = $r_post['card_id'];
-                    $comment = '##USER_NAME## voted on ##CARD_LINK##';
+                    $comment = '##USER_NAME## voted on the card ##CARD_LINK##';
                     $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_voter', $foreign_ids, '', $response['id']);
                     $qry_val_arr = array(
                         $response['id']
@@ -4723,7 +4823,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
             $foreign_ids['board_id'] = $r_resource_vars['boards'];
             $foreign_ids['list_id'] = $r_resource_vars['lists'];
             $foreign_ids['card_id'] = $r_resource_vars['cards'];
-            $comment = '##USER_NAME## added attachment to this card ##CARD_LINK##';
+            $comment = '##USER_NAME## added attachment to the card ##CARD_LINK##';
             $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_attachment', $foreign_ids, null, $response['card_attachments'][0]['id']);
         } else if (!empty($_FILES['attachment']) && is_array($_FILES['attachment']['name']) && $_FILES['attachment']['error'][0] == 0) {
             $file = $_FILES['attachment'];
@@ -4783,7 +4883,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                         $foreign_ids['board_id'] = $r_resource_vars['boards'];
                         $foreign_ids['list_id'] = $r_resource_vars['lists'];
                         $foreign_ids['card_id'] = $r_resource_vars['cards'];
-                        $comment = '##USER_NAME## added attachment to this card ##CARD_LINK##';
+                        $comment = '##USER_NAME## added attachment to the card ##CARD_LINK##';
                         $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_attachment', $foreign_ids, null, $response['card_attachments'][$i]['id']);
                         foreach ($thumbsizes['CardAttachment'] as $key => $value) {
                             $imgdir = IMG_PATH . DS . $key . DS . 'CardAttachment' . DS . $response['card_attachments'][$i]['id'];
@@ -4814,7 +4914,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                     $foreign_ids['board_id'] = $r_resource_vars['boards'];
                     $foreign_ids['list_id'] = $r_resource_vars['lists'];
                     $foreign_ids['card_id'] = $r_resource_vars['cards'];
-                    $comment = '##USER_NAME## added attachment to this card ##CARD_LINK##';
+                    $comment = '##USER_NAME## added attachment to the card ##CARD_LINK##';
                     $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_attachment', $foreign_ids, null, $response['card_attachments'][$i]['id']);
                     $i++;
                 }
@@ -4832,7 +4932,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                         $foreign_ids['board_id'] = $r_post['board_id'];
                         $foreign_ids['list_id'] = $r_post['list_id'];
                         $foreign_ids['card_id'] = $r_post['card_id'];
-                        $comment = '##USER_NAME## added attachment to this card ##CARD_LINK##';
+                        $comment = '##USER_NAME## added attachment to the card ##CARD_LINK##';
                         $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_attachment', $foreign_ids, null, $row['id']);
                         foreach ($thumbsizes['CardAttachment'] as $key => $value) {
                             $mediadir = IMG_PATH . DS . $key . DS . 'CardAttachment' . DS . $row['id'];
@@ -4908,18 +5008,18 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
             if (count($newlabel) && !count(array_diff($previous_cards_labels, $oldlabel))) {
                 $names = implode(",", $newlabel);
                 $names = preg_replace('/[ ,]+/', ', ', $names);
-                $comment = '##USER_NAME## added label(s) to this card ##CARD_LINK## - ' . $names;
+                $comment = '##USER_NAME## added label(s) to the card ##CARD_LINK## - ' . $names;
                 $type = 'add_card_label';
             } else if (!count($newlabel) && count(array_diff($previous_cards_labels, $oldlabel))) {
                 $names = implode(",", array_diff($previous_cards_labels, $oldlabel));
                 $names = preg_replace('/[ ,]+/', ', ', $names);
-                $comment = '##USER_NAME## removed label(s) to this card ##CARD_LINK## - ' . $names;
+                $comment = '##USER_NAME## removed label(s) to the card ##CARD_LINK## - ' . $names;
                 $type = 'update_card_label';
             } else if (count($newlabel) && count(array_diff($previous_cards_labels, $oldlabel))) {
                 $deletenames = implode(",", array_diff($previous_cards_labels, $oldlabel));
                 $names = implode(",", $newlabel);
                 $names = preg_replace('/[ ,]+/', ', ', $names);
-                $comment = '##USER_NAME## removed the label(s) ' . ' - ' . $deletenames . ' and added the lables ' . '-' . $names . ' to this card ##CARD_LINK##';
+                $comment = '##USER_NAME## removed the label(s) ' . ' - ' . $deletenames . ' and added the lables ' . '-' . $names . ' to the card ##CARD_LINK##';
                 $type = 'update_card_label';
             }
         } else {
@@ -4928,7 +5028,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 $names.= $labels_data['name'] . ', ';
             }
             $names = substr($names, 0, -2);
-            $comment = '##USER_NAME## removed label(s) in this card ##CARD_LINK## - ' . $names;
+            $comment = '##USER_NAME## removed label(s) in the card ##CARD_LINK## - ' . $names;
             $r_post['label_id'] = $delete_label['label_id'];
             $type = 'delete_card_label';
         }
@@ -4972,7 +5072,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 $foreign_ids['board_id'] = $r_resource_vars['boards'];
                 $foreign_ids['list_id'] = $r_resource_vars['lists'];
                 $foreign_ids['card_id'] = $r_resource_vars['cards'];
-                $comment = '##USER_NAME## added checklist ' . $response['checklist']['name'] . ' to this card ##CARD_LINK##';
+                $comment = '##USER_NAME## added checklist ' . $response['checklist']['name'] . ' to the card ##CARD_LINK##';
                 $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_checklist', $foreign_ids, '', $response['id']);
             }
         }
@@ -5013,7 +5113,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 $foreign_ids['board_id'] = $r_resource_vars['boards'];
                 $foreign_ids['list_id'] = $r_resource_vars['lists'];
                 $foreign_ids['card_id'] = $r_post['card_id'];
-                $comment = '##USER_NAME## added item ##CHECKLIST_ITEM_NAME## in checklist ##CHECKLIST_ITEM_PARENT_NAME## of card ##CARD_LINK##';
+                $comment = '##USER_NAME## added item ##CHECKLIST_ITEM_NAME## in checklist ##CHECKLIST_ITEM_PARENT_NAME## of the card ##CARD_LINK##';
                 $response['activities'][] = insertActivity($authUser['id'], $comment, 'add_checklist_item', $foreign_ids, '', $item['id']);
             }
         }
@@ -5068,7 +5168,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                             $member
                         );
                         $_user = executeQuery('SELECT username FROM users WHERE id = $1', $qry_val_arr);
-                        $comment = '##USER_NAME## added "' . $_user['username'] . '" as member to this card ##CARD_LINK##';
+                        $comment = '##USER_NAME## added "' . $_user['username'] . '" as member to the card ##CARD_LINK##';
                         $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_user', $foreign_ids, '', $card_user['id']);
                     }
                 }
@@ -5111,7 +5211,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                         );
                         pg_query_params($db_lnk, 'INSERT INTO cards_labels (created, modified, card_id, label_id, board_id, list_id) VALUES (now(), now(), $1, $2, $3, $4) RETURNING *', $qry_val_arr);
                     }
-                    $comment = '##USER_NAME## added label(s) to this card ##CARD_LINK## - ' . $names;;
+                    $comment = '##USER_NAME## added label(s) to the card ##CARD_LINK## - ' . $names;;
                     insertActivity($authUser['id'], $comment, 'add_card_label', $foreign_ids, null, $r_post['label_id']);
                 }
                 $qry_val_arr = array(
@@ -5177,7 +5277,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                     $foreign_ids['board_id'] = $sel_details['board_id'];
                     $foreign_ids['list_id'] = $sel_details['list_id'];
                     $foreign_ids['card_id'] = $r_post['card_id'];
-                    $comment = '##USER_NAME## added "' . $sel_details['username'] . '" as member to this card ##CARD_LINK##';
+                    $comment = '##USER_NAME## added "' . $sel_details['username'] . '" as member to the card ##CARD_LINK##';
                     $response['activity'] = insertActivity($authUser['id'], $comment, 'add_card_user', $foreign_ids, '', $response['id']);
                 }
             }
@@ -5333,7 +5433,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 $foreign_ids['board_id'] = $r_post['board_id'];
                 $foreign_ids['list_id'] = $r_post['list_id'];
                 $foreign_ids['card_id'] = $response['id'];
-                $comment = '##USER_NAME## copied this card "' . $srow['name'] . '" to ##CARD_NAME##';
+                $comment = '##USER_NAME## copied this card ##CARD_NAME## from ' . $srow['name'];
                 $response['activity'] = insertActivity($authUser['id'], $comment, 'copy_card', $foreign_ids, null, $response['id']);
                 $qry_val_arr = array(
                     $response['id']
@@ -5981,7 +6081,7 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
                 }
             }
         }
-        if (isset($r_put['default_email_list_id']) || isset($r_put['sort_by']) || isset($r_put['is_default_email_position_as_bottom'])) {
+        if (isset($r_put['default_email_list_id']) || isset($r_put['is_default_email_position_as_bottom'])) {
             $comment = '';
         } else if (isset($r_put['board_visibility'])) {
             $comment = '##USER_NAME## changed visibility to ' . $board_visibility[$r_put['board_visibility']];
@@ -6019,6 +6119,9 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
             }
         } else if (isset($r_put['music_name']) && !empty($r_put['music_content'])) {
             $comment = '##USER_NAME## updated the beats on ##BOARD_NAME## board.';
+        } else if (isset($r_put['sort_by']) && !empty($r_put['sort_by'])) {
+            $comment = '##USER_NAME## updated the sort of cards on ##BOARD_NAME## board.';
+            $activity_type = 'update_sort_card';
         }
         if (!empty($r_put['organization_id'])) {
             $qry_val_arr = array(
@@ -6294,10 +6397,10 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
             );
             pg_query_params($db_lnk, 'update cards set is_due_date_notification_sent = $1 where id = $2', $data_val);
             if (isset($previous_value['due_date']) && ($previous_value['due_date'] != 'null' && $previous_value['due_date'] != '')) {
-                $comment = 'Due date - ' . $r_put['due_date'] . ' was updated to this card ##CARD_LINK##';
+                $comment = 'Due date - ' . $r_put['due_date'] . ' was updated to the card ##CARD_LINK##';
                 $activity_type = 'edit_card_duedate';
             } else {
-                $comment = '##USER_NAME## set due date - ' . $r_put['due_date'] . ' to this card ##CARD_LINK##';
+                $comment = '##USER_NAME## set due date - ' . $r_put['due_date'] . ' to the card ##CARD_LINK##';
                 $activity_type = 'add_card_duedate';
             }
             if (is_plugin_enabled('r_gantt_view')) {
@@ -6306,51 +6409,51 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
                 $childCardResponse = updateDependencyCards($r_put, array());
             }
         } else if (isset($r_put['due_date'])) {
-            $comment = 'Due date - ' . $previous_value['due_date'] . ' was removed to this card ##CARD_LINK##';
+            $comment = '##USER_NAME##  removed Due date - ' . $previous_value['due_date'] . ' to the card ##CARD_LINK##';
             $activity_type = 'delete_card_duedate';
         }
         if (is_plugin_enabled('r_gantt_view')) {
             if (isset($present_custom_fields['start_date']) && $present_custom_fields['start_date'] != 'NULL' && $present_custom_fields['start_date'] != '') {
                 if (isset($previous_custom_fields['start_date']) && ($previous_custom_fields['start_date'] != 'null' && $previous_custom_fields['start_date'] != '')) {
-                    $comment = '##USER_NAME## updated Start date - ' . $present_custom_fields['start_date'] . ' to this card ##CARD_LINK##';
+                    $comment = '##USER_NAME## updated Start date - ' . $present_custom_fields['start_date'] . ' ' . $present_custom_fields['start_time'] . ' to the card ##CARD_LINK##';
                     $activity_type = 'edit_card_startdate';
                 } else {
-                    $comment = '##USER_NAME## set start date - ' . $present_custom_fields['start_date'] . ' to this card ##CARD_LINK##';
+                    $comment = '##USER_NAME## set start date - ' . $present_custom_fields['start_date'] . ' ' . $present_custom_fields['start_time'] . ' to the card ##CARD_LINK##';
                     $activity_type = 'add_card_startdate';
                 }
             } else if (isset($present_custom_fields['start_date'])) {
-                $comment = 'Start date - ' . $previous_custom_fields['start_date'] . ' was removed to this card ##CARD_LINK##';
+                $comment = '##USER_NAME## removed Start date - ' . $previous_custom_fields['start_date'] . ' ' . $previous_custom_fields['start_time'] . ' to the card ##CARD_LINK##';
                 $activity_type = 'delete_card_startdate';
             }
         }
         if (is_plugin_enabled('r_estimated_time')) {
             if ((isset($present_custom_fields['hour']) && $present_custom_fields['hour'] != 'NULL' && $present_custom_fields['hour'] != '') || (isset($present_custom_fields['min']) && $present_custom_fields['min'] != 'NULL' && $present_custom_fields['min'] != '')) {
                 if (isset($present_custom_fields['hour']) && ($present_custom_fields['hour'] != 'null' && $present_custom_fields['hour'] != '') && isset($present_custom_fields['min']) && ($present_custom_fields['min'] != 'null' && $present_custom_fields['min'] != '')) {
-                    $comment = '##USER_NAME## updated estimated time ' . $present_custom_fields['hour'] . ' hour(s) ' . $present_custom_fields['min'] . ' min(s) to this card ##CARD_LINK##';
+                    $comment = '##USER_NAME## updated estimated time ' . $present_custom_fields['hour'] . ' hour(s) ' . $present_custom_fields['min'] . ' min(s) to the card ##CARD_LINK##';
                     $activity_type = 'edit_card_estimatedtime';
                 } else if (isset($present_custom_fields['hour']) && ($present_custom_fields['hour'] != 'null' && $present_custom_fields['hour'] != '')) {
-                    $comment = '##USER_NAME## set estimated time ' . $present_custom_fields['hour'] . ' hour(s) to this card ##CARD_LINK##';
+                    $comment = '##USER_NAME## set estimated time ' . $present_custom_fields['hour'] . ' hour(s) to the card ##CARD_LINK##';
                     $activity_type = 'add_card_estimatedtime';
                 } else if (isset($present_custom_fields['min']) && ($present_custom_fields['min'] != 'null' && $present_custom_fields['min'] != '')) {
-                    $comment = '##USER_NAME## set estimated time ' . $present_custom_fields['min'] . ' min(s) to this card ##CARD_LINK##';
+                    $comment = '##USER_NAME## set estimated time ' . $present_custom_fields['min'] . ' min(s) to the card ##CARD_LINK##';
                     $activity_type = 'add_card_estimatedtime';
                 }
             } else if (isset($present_custom_fields['hour']) && isset($present_custom_fields['min'])) {
-                $comment = '##USER_NAME## removed estimated time to this card ##CARD_LINK##';
+                $comment = '##USER_NAME## removed estimated time to the card ##CARD_LINK##';
                 $activity_type = 'delete_card_estimatedtime';
             }
         }
         if (is_plugin_enabled('r_spent_time')) {
             if ((isset($present_custom_fields['number']) && $present_custom_fields['number'] != 'NULL' && $present_custom_fields['number'] != '') && (isset($present_custom_fields['period']) && $present_custom_fields['period'] != 'NULL' && $present_custom_fields['period'] != '')) {
                 if (isset($previous_custom_fields['number']) && ($previous_custom_fields['number'] != 'null' && $previous_custom_fields['number'] != '') && isset($previous_custom_fields['period']) && ($previous_custom_fields['period'] != 'null' && $previous_custom_fields['period'] != '')) {
-                    $comment = '##USER_NAME## updated spent time ' . $present_custom_fields['number'] . ' ' . $present_custom_fields['period'] . ' to this card ##CARD_LINK##';
+                    $comment = '##USER_NAME## updated spent time ' . $present_custom_fields['number'] . ' ' . $present_custom_fields['period'] . ' to the card ##CARD_LINK##';
                     $activity_type = 'edit_card_spenttime';
                 } else {
-                    $comment = '##USER_NAME## set spent time ' . $present_custom_fields['number'] . ' ' . $present_custom_fields['period'] . ' to this card ##CARD_LINK##';
+                    $comment = '##USER_NAME## set spent time ' . $present_custom_fields['number'] . ' ' . $present_custom_fields['period'] . ' to the card ##CARD_LINK##';
                     $activity_type = 'add_card_spenttime';
                 }
             } else if (isset($present_custom_fields['period']) && isset($present_custom_fields['number'])) {
-                $comment = '##USER_NAME## removed spent time to this card ##CARD_LINK##';
+                $comment = '##USER_NAME## removed spent time to the card ##CARD_LINK##';
                 $activity_type = 'delete_card_spenttime';
             }
         }
@@ -6360,14 +6463,14 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
         if (isset($previous_value['name']) && isset($r_put['name']) && $r_put['name'] != $previous_value['name']) {
             $comment = '##USER_NAME## renamed ##CARD_LINK##';
         }
-        if (!isset($previous_value['description']) && isset($r_put['description'])) {
-            $comment = '##USER_NAME## added card description in ##CARD_LINK## - ##DESCRIPTION##';
+        if (empty($previous_value['description']) && isset($r_put['description'])) {
+            $comment = '##USER_NAME## added card description in the card ##CARD_LINK## - ##DESCRIPTION##';
             $activity_type = 'add_card_desc';
         } else if (isset($previous_value) && isset($r_put['description']) && $r_put['description'] != $previous_value['description']) {
             if (empty($r_put['description'])) {
-                $comment = '##USER_NAME## removed description from ##CARD_LINK##';
+                $comment = '##USER_NAME## removed description from the card ##CARD_LINK##';
             } else {
-                $comment = '##USER_NAME## updated description on ##CARD_LINK##';
+                $comment = '##USER_NAME## updated description on the card ##CARD_LINK##';
             }
             $activity_type = 'edit_card_desc';
         }
@@ -6382,17 +6485,17 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
             );
             $s_result = pg_query_params($db_lnk, 'SELECT name FROM lists WHERE id = $1', $qry_val_arr);
             $previous_list_value = pg_fetch_assoc($s_result);
-            $comment = '##USER_NAME## moved this card ##CARD_LINK## from ' . $previous_list_value['name'] . ' list to ' . $list_value['name'] . '.';
+            $comment = '##USER_NAME## moved the card ##CARD_LINK## from ' . $previous_list_value['name'] . ' list to ' . $list_value['name'] . '.';
         }
         if (empty($previous_value['color']) && isset($r_put['color'])) {
-            $comment = '##USER_NAME## added card color - ' . $r_put['color'] . ' in ##CARD_LINK##';
+            $comment = '##USER_NAME## added card color - ' . $r_put['color'] . ' in the card ##CARD_LINK##';
             $activity_type = 'add_card_color';
         } else if (!empty($previous_value) && isset($r_put['color']) && $r_put['color'] != $previous_value['color']) {
             if (empty($r_put['color'])) {
-                $comment = '##USER_NAME## removed card color - ' . $previous_value['color'] . ' from ##CARD_LINK##';
+                $comment = '##USER_NAME## removed card color - ' . $previous_value['color'] . ' from the card ##CARD_LINK##';
                 $activity_type = 'delete_card_color';
             } else {
-                $comment = '##USER_NAME## updated card color - ' . $r_put['color'] . ' on ##CARD_LINK##';
+                $comment = '##USER_NAME## updated card color - ' . $r_put['color'] . ' on the card ##CARD_LINK##';
                 $activity_type = 'edit_card_color';
             }
         }
@@ -6475,16 +6578,16 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
         $prev_value = executeQuery('SELECT * FROM ' . $table_name . ' WHERE id =  $1', $qry_val_arr);
         $activity_type = 'update_card_checklist_item';
         if (!empty($r_put['is_completed'])) {
-            $comment = '##USER_NAME## updated ##CHECKLIST_ITEM_NAME## as completed on card ##CARD_LINK##';
+            $comment = '##USER_NAME## updated ##CHECKLIST_ITEM_NAME## as completed on the card ##CARD_LINK##';
         } else if (isset($r_put['position'])) {
             $comment = '##USER_NAME## moved checklist item on card ##CARD_LINK##';
             if (isset($r_put['checklist_id']) && $r_put['checklist_id'] != $prev_value['checklist_id']) {
                 $activity_type = 'moved_card_checklist_item';
             }
         } else if (isset($r_put['is_completed']) && $r_put['is_completed'] == 'false') {
-            $comment = '##USER_NAME## updated ##CHECKLIST_ITEM_NAME## as incomplete on card ##CARD_LINK##';
+            $comment = '##USER_NAME## updated ##CHECKLIST_ITEM_NAME## as incomplete on the card ##CARD_LINK##';
         } else {
-            $comment = '##USER_NAME## updated item name as ##CHECKLIST_ITEM_NAME## in card ##CARD_LINK##';
+            $comment = '##USER_NAME## updated item name of ##CHECKLIST_ITEM_NAME## in the card ##CARD_LINK##';
         }
         $response = update_query($table_name, $id, $r_resource_cmd, $r_put, $comment, $activity_type, $foreign_ids);
         echo json_encode($response);
@@ -6927,7 +7030,7 @@ function r_delete($r_resource_cmd, $r_resource_vars, $r_resource_filters)
         $foreign_ids['board_id'] = $r_resource_vars['boards'];
         $foreign_ids['list_id'] = $r_resource_vars['lists'];
         $foreign_ids['card_id'] = $r_resource_vars['cards'];
-        $comment = '##USER_NAME## unvoted this card ##CARD_LINK##';
+        $comment = '##USER_NAME## unvoted the card ##CARD_LINK##';
         $response['activity'] = insertActivity($authUser['id'], $comment, 'unvote_card', $foreign_ids, null, $r_resource_vars['card_voters']);
         break;
 
@@ -7007,7 +7110,7 @@ function r_delete($r_resource_cmd, $r_resource_vars, $r_resource_filters)
         $foreign_ids['board_id'] = $r_resource_vars['boards'];
         $foreign_ids['list_id'] = $r_resource_vars['lists'];
         $foreign_ids['card_id'] = $r_resource_vars['cards'];
-        $comment = '##USER_NAME## deleted attachment from card ##CARD_LINK##';
+        $comment = '##USER_NAME## deleted attachment from the card ##CARD_LINK##';
         $response['activity'] = insertActivity($authUser['id'], $comment, 'delete_card_attachment', $foreign_ids, null, $r_resource_vars['attachments']);
         $mediadir = MEDIA_PATH . DS . 'Card' . DS . $r_resource_vars['cards'];
         $qry_val_arr = array(
@@ -7040,7 +7143,7 @@ function r_delete($r_resource_cmd, $r_resource_vars, $r_resource_filters)
         $foreign_ids['board_id'] = $r_resource_vars['boards'];
         $foreign_ids['list_id'] = $r_resource_vars['lists'];
         $foreign_ids['card_id'] = $r_resource_vars['cards'];
-        $comment = '##USER_NAME## deleted checklist ' . $checklist['name'] . ' from card ##CARD_LINK##';
+        $comment = '##USER_NAME## deleted checklist ' . $checklist['name'] . ' from the card ##CARD_LINK##';
         $response['activity'] = insertActivity($authUser['id'], $comment, 'delete_checklist', $foreign_ids, null, $r_resource_vars['checklists']);
         $sql = 'DELETE FROM checklists WHERE id = $1';
         array_push($pg_params, $r_resource_vars['checklists']);
@@ -7055,7 +7158,7 @@ function r_delete($r_resource_cmd, $r_resource_vars, $r_resource_filters)
         );
         $s_result = pg_query_params($db_lnk, 'SELECT name FROM checklist_items WHERE id = $1', $qry_val_arr);
         $checklist_item = pg_fetch_assoc($s_result);
-        $comment = '##USER_NAME## deleted checklist ' . $checklist_item['name'] . ' item from card ##CARD_LINK##';
+        $comment = '##USER_NAME## deleted checklist ' . $checklist_item['name'] . ' item from the card ##CARD_LINK##';
         $response['activity'] = insertActivity($authUser['id'], $comment, 'delete_checklist_item', $foreign_ids, null, $r_resource_vars['items']);
         $sql = 'DELETE FROM checklist_items WHERE id = $1';
         array_push($pg_params, $r_resource_vars['items']);
@@ -7065,7 +7168,7 @@ function r_delete($r_resource_cmd, $r_resource_vars, $r_resource_filters)
         $foreign_ids['board_id'] = $r_resource_vars['boards'];
         $foreign_ids['list_id'] = $r_resource_vars['lists'];
         $foreign_ids['card_id'] = $r_resource_vars['cards'];
-        $comment = '##USER_NAME## deleted member from card ##CARD_LINK##';
+        $comment = '##USER_NAME## deleted member from the card ##CARD_LINK##';
         $response['activity'] = insertActivity($authUser['id'], $comment, 'delete_card_users', $foreign_ids, null, $r_resource_vars['cards_users']);
         $sql = 'DELETE FROM cards_users WHERE id = $1';
         $qry_val_arr = array(
