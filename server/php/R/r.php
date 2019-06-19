@@ -1796,7 +1796,7 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
         break;
 
     case '/settings':
-        $s_sql = pg_query_params($db_lnk, "SELECT name, value FROM settings WHERE name IN ('SITE_NAME', 'SITE_TIMEZONE', 'DROPBOX_APPKEY', 'LABEL_ICON', 'FLICKR_API_KEY', 'DEFAULT_LANGUAGE', 'IS_TWO_FACTOR_AUTHENTICATION_ENABLED', 'IMAP_EMAIL', 'PAGING_COUNT', 'ALLOWED_FILE_EXTENSIONS', 'DEFAULT_CARD_VIEW', 'DEFAULT_CARD_VIEW', 'R_LDAP_LOGIN_HANDLE')", array());
+        $s_sql = pg_query_params($db_lnk, "SELECT name, value FROM settings WHERE name IN ('SITE_NAME', 'SITE_TIMEZONE', 'DROPBOX_APPKEY', 'LABEL_ICON', 'FLICKR_API_KEY', 'DEFAULT_LANGUAGE', 'IS_TWO_FACTOR_AUTHENTICATION_ENABLED', 'IMAP_EMAIL', 'PAGING_COUNT', 'ALLOWED_FILE_EXTENSIONS', 'DEFAULT_CARD_VIEW', 'DEFAULT_CARD_VIEW', 'R_LDAP_LOGIN_HANDLE', 'CALENDAR_VIEW_CARD_COLOR')", array());
         while ($row = pg_fetch_assoc($s_sql)) {
             $response[$row['name']] = $row['value'];
         }
@@ -2269,6 +2269,8 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 $default_email_notification = 1;
             } else if (DEFAULT_EMAIL_NOTIFICATION === 'Instantly') {
                 $default_email_notification = 2;
+            } else if (DEFAULT_EMAIL_NOTIFICATION === 'Daily') {
+                $default_email_notification = 3;
             }
             $r_post['is_send_newsletter'] = $default_email_notification;
             $r_post['default_desktop_notification'] = (DEFAULT_DESKTOP_NOTIFICATION === 'Enabled') ? 'true' : 'false';
@@ -2353,6 +2355,8 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 $default_email_notification = 1;
             } else if (DEFAULT_EMAIL_NOTIFICATION === 'Instantly') {
                 $default_email_notification = 2;
+            } else if (DEFAULT_EMAIL_NOTIFICATION === 'Daily') {
+                $default_email_notification = 3;
             }
             $r_post['is_send_newsletter'] = $default_email_notification;
             $r_post['default_desktop_notification'] = (DEFAULT_DESKTOP_NOTIFICATION === 'Enabled') ? 'true' : 'false';
@@ -2409,6 +2413,8 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 $default_email_notification = 1;
             } else if (DEFAULT_EMAIL_NOTIFICATION === 'Instantly') {
                 $default_email_notification = 2;
+            } else if (DEFAULT_EMAIL_NOTIFICATION === 'Daily') {
+                $default_email_notification = 3;
             }
             $r_post['is_send_newsletter'] = $default_email_notification;
             $r_post['default_desktop_notification'] = (DEFAULT_DESKTOP_NOTIFICATION === 'Enabled') ? 'true' : 'false';
@@ -3099,6 +3105,39 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                     $response['id'] = $board['id'];
                 } else {
                     $response['error'] = 'Invalid file format. Upload json file';
+                }
+            } else {
+                $response['error'] = 'Unable to import. please try again.';
+            }
+        } elseif (!empty($_FILES['board_import_pipefy'])) {
+            if ($_FILES['board_import_pipefy']['error'] == 0) {
+                if ($_FILES['board_import_pipefy']['type'] === 'text/csv') {
+                    $all_rows = array();
+                    $imported_board = array();
+                    if (($handle = fopen($_FILES['board_import_pipefy']['tmp_name'], "r")) !== false) {
+                        $row = 1;
+                        while (($data = fgetcsv($handle, 40000, ",")) !== false) {
+                            if ($row > 1) {
+                                $arrResult = array();
+                                foreach ($data as $key => $value) {
+                                    $arrResult[$all_rows[0][$key]] = $value;
+                                };
+                                $imported_board[] = $arrResult;
+                            } else {
+                                $all_rows[] = $data;
+                            }
+                            $row++;
+                        }
+                        if (!empty($imported_board)) {
+                            $board = importpipefyBoard($imported_board);
+                            $response['id'] = $board['id'];
+                        } else {
+                            $response['error'] = 'Invalid file format. Upload CSV file';
+                        }
+                    }
+                    fclose($handle);
+                } else {
+                    $response['error'] = 'Invalid file format. Upload CSV file';
                 }
             } else {
                 $response['error'] = 'Unable to import. please try again.';
@@ -4554,10 +4593,9 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 );
                 pg_query_params($db_lnk, 'UPDATE activities SET materialized_path = $1, path = $2, depth = $3, root = $4 WHERE id = $5', $qry_val_arr);
                 $qry_val_arr = array(
-                    $r_post['freshness_ts'],
                     $root
                 );
-                pg_query_params($db_lnk, 'UPDATE activities SET freshness_ts = $1 WHERE root = $2', $qry_val_arr);
+                pg_query_params($db_lnk, 'UPDATE activities SET freshness_ts =  now() WHERE root = $1', $qry_val_arr);
                 $qry_val_arr = array(
                     $root
                 );
@@ -5002,7 +5040,7 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
             $qry_val_arr = array(
                 $r_post['card_id']
             );
-            $s_result = pg_query_params($db_lnk, 'SELECT * FROM cards_labels_listing WHERE card_id = $1', $qry_val_arr);
+            $s_result = pg_query_params($db_lnk, 'SELECT * FROM cards_labels_listing WHERE card_id = $1 ORDER BY name ASC', $qry_val_arr);
             $cards_labels = pg_fetch_all($s_result);
             $response['cards_labels'] = $cards_labels;
             if (count($newlabel) && !count(array_diff($previous_cards_labels, $oldlabel))) {
@@ -5382,13 +5420,85 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
                 }
                 if (isset($is_keep_custom_fields)) {
                     if (is_plugin_enabled('r_custom_fields')) {
-                        $qry_val_arr = array(
-                            $response['id'],
-                            $r_post['board_id'],
-                            $r_post['list_id'],
-                            $copied_card_id
-                        );
-                        pg_query_params($db_lnk, 'INSERT INTO cards_custom_fields (created, modified, card_id, custom_field_id, value,is_active,board_id,list_id) SELECT created, modified, $1, custom_field_id,value,is_active, $2, $3 FROM cards_custom_fields WHERE card_id = $4 ORDER BY id', $qry_val_arr);
+                        if ($r_post['board_id'] != $r_resource_vars['boards']) {
+                            $customFields = array();
+                            $qry_val_arr = array(
+                                $r_resource_vars['boards'],
+                            );
+                            $custom_fields = pg_query_params($db_lnk, 'SELECT * FROM custom_fields WHERE board_id IS NULL or board_id = $1', $qry_val_arr);
+                            while ($custom_field = pg_fetch_assoc($custom_fields)) {
+                                if (!empty($custom_field['board_id'])) {
+                                    $qry_val_arr = array(
+                                        $r_post['board_id'],
+                                        $custom_field['name']
+                                    );
+                                    $customField = executeQuery('SELECT * FROM custom_fields WHERE board_id = $1 AND name = $2', $qry_val_arr);
+                                    if (empty($customField)) {
+                                        $data = array(
+                                            'user_id' => $authUser['id'],
+                                            'type' => $custom_field['type'],
+                                            'name' => $custom_field['name'],
+                                            'description' => $custom_field['description'],
+                                            'options' => $custom_field['options'],
+                                            'label' => $custom_field['label'],
+                                            'position' => $custom_field['position'],
+                                            'visibility' => $custom_field['visibility'],
+                                            'color' => $custom_field['color'],
+                                            'board_id' => $r_post['board_id'],
+                                        );
+                                        $result = pg_execute_insert('custom_fields', $data);
+                                        $row = pg_fetch_assoc($result);
+                                        $customFields[$custom_field['id']] = (int)($row['id']);
+                                    } else {
+                                        $qry_val_arr = array(
+                                            $r_resource_vars['boards'],
+                                            $custom_field['name']
+                                        );
+                                        $previous_customField = executeQuery('SELECT * FROM custom_fields WHERE board_id = $1 AND name = $2', $qry_val_arr);
+                                        if (!empty($previous_customField) && !empty($customField)) {
+                                            if ($previous_customField['type'] === 'dropdown') {
+                                                $new_customfield_options = explode(',', $customField['options']);
+                                                $previous_customfield_options = explode(',', $previous_customField['options']);
+                                                $new_unique_option = array_unique(array_merge($new_customfield_options, $previous_customfield_options));
+                                                $data = array(
+                                                    $customField['id'],
+                                                    implode(',', $new_unique_option)
+                                                );
+                                                pg_query_params($db_lnk, 'UPDATE custom_fields SET options = $2 WHERE id = $1', $data);
+                                            }
+                                        }
+                                        $customFields[$custom_field['id']] = $customField['id'];
+                                    }
+                                } else {
+                                    $customFields[$custom_field['id']] = $custom_field['id'];
+                                }
+                            }
+                            if (!empty($customFields)) {
+                                $qry_val_arr = array(
+                                    $copied_card_id
+                                );
+                                $cardsCustomFields = pg_query_params($db_lnk, 'SELECT * FROM cards_custom_fields WHERE card_id = $1 ORDER BY id', $qry_val_arr);
+                                while ($cardsCustomField = pg_fetch_assoc($cardsCustomFields)) {
+                                    $data = array(
+                                        $response['id'],
+                                        $customFields[$cardsCustomField['custom_field_id']],
+                                        $cardsCustomField['value'],
+                                        $cardsCustomField['is_active'],
+                                        $r_post['board_id'],
+                                        $r_post['list_id']
+                                    );
+                                    pg_query_params($db_lnk, 'INSERT INTO cards_custom_fields (created, modified, card_id, custom_field_id, value,is_active, board_id, list_id) VALUES (now(), now(), $1, $2, $3, $4, $5, $6)', $data);
+                                }
+                            }
+                        } else {
+                            $qry_val_arr = array(
+                                $response['id'],
+                                $r_post['board_id'],
+                                $r_post['list_id'],
+                                $copied_card_id
+                            );
+                            pg_query_params($db_lnk, 'INSERT INTO cards_custom_fields (created, modified, card_id, custom_field_id, value,is_active,board_id,list_id) SELECT created, modified, $1, custom_field_id,value,is_active, $2, $3 FROM cards_custom_fields WHERE card_id = $4 ORDER BY id', $qry_val_arr);
+                        }
                     }
                 }
                 if ($is_keep_activity) {
@@ -6458,6 +6568,75 @@ function r_put($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_put)
             }
         }
         if (isset($previous_value['board_id']) && isset($r_put['board_id']) && $r_put['board_id'] != $previous_value['board_id']) {
+            if (is_plugin_enabled('r_custom_fields')) {
+                $customFields = array();
+                $qry_val_arr = array(
+                    $previous_value['board_id'],
+                );
+                $custom_fields = pg_query_params($db_lnk, 'SELECT * FROM custom_fields WHERE board_id IS NULL or board_id = $1', $qry_val_arr);
+                while ($custom_field = pg_fetch_assoc($custom_fields)) {
+                    if (!empty($custom_field['board_id'])) {
+                        $qry_val_arr = array(
+                            $r_put['board_id'],
+                            $custom_field['name']
+                        );
+                        $customField = executeQuery('SELECT * FROM custom_fields WHERE board_id = $1 AND name = $2', $qry_val_arr);
+                        if (empty($customField)) {
+                            $data = array(
+                                'user_id' => $authUser['id'],
+                                'type' => $custom_field['type'],
+                                'name' => $custom_field['name'],
+                                'description' => $custom_field['description'],
+                                'options' => $custom_field['options'],
+                                'label' => $custom_field['label'],
+                                'position' => $custom_field['position'],
+                                'visibility' => $custom_field['visibility'],
+                                'color' => $custom_field['color'],
+                                'board_id' => $r_put['board_id'],
+                            );
+                            $result = pg_execute_insert('custom_fields', $data);
+                            $row = pg_fetch_assoc($result);
+                            $customFields[$custom_field['id']] = (int)($row['id']);
+                        } else {
+                            $qry_val_arr = array(
+                                $previous_value['board_id'],
+                                $custom_field['name']
+                            );
+                            $previous_customField = executeQuery('SELECT * FROM custom_fields WHERE board_id = $1 AND name = $2', $qry_val_arr);
+                            if (!empty($previous_customField) && !empty($customField)) {
+                                if ($previous_customField['type'] === 'dropdown') {
+                                    $new_customfield_options = explode(',', $customField['options']);
+                                    $previous_customfield_options = explode(',', $previous_customField['options']);
+                                    $new_unique_option = array_unique(array_merge($new_customfield_options, $previous_customfield_options));
+                                    $data = array(
+                                        $customField['id'],
+                                        implode(',', $new_unique_option)
+                                    );
+                                    pg_query_params($db_lnk, 'UPDATE custom_fields SET options = $2 WHERE id = $1', $data);
+                                }
+                            }
+                            $customFields[$custom_field['id']] = $customField['id'];
+                        }
+                    } else {
+                        $customFields[$custom_field['id']] = $custom_field['id'];
+                    }
+                }
+                if (!empty($customFields)) {
+                    $qry_val_arr = array(
+                        $id
+                    );
+                    $cardsCustomFields = pg_query_params($db_lnk, 'SELECT * FROM cards_custom_fields WHERE card_id = $1 ORDER BY id', $qry_val_arr);
+                    while ($cardsCustomField = pg_fetch_assoc($cardsCustomFields)) {
+                        $data = array(
+                            $customFields[$cardsCustomField['custom_field_id']],
+                            $r_put['board_id'],
+                            $r_put['list_id'],
+                            $cardsCustomField['id']
+                        );
+                        pg_query_params($db_lnk, 'UPDATE cards_custom_fields SET custom_field_id = $1, board_id = $2, list_id = $3 WHERE id = $4', $data);
+                    }
+                }
+            }
             $comment = '##USER_NAME## moved the card ##CARD_LINK## to different board.';
         }
         if (isset($previous_value['name']) && isset($r_put['name']) && $r_put['name'] != $previous_value['name']) {

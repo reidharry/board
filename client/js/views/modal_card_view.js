@@ -663,7 +663,7 @@ App.ModalCardView = Backbone.View.extend({
                             model: new_label,
                             background: self.getLabelcolor('' + new_label.attributes.name).substring(0, 6)
                         });
-                        view_label.prepend(view.render().el);
+                        view_label.append(view.render().el);
                         $('#js-card-' + self.model.id).addClass('active');
                         $('.js-label-dropdown').removeClass('open');
                     });
@@ -1428,12 +1428,13 @@ App.ModalCardView = Backbone.View.extend({
                     }
                     $('.editor').each(function() {
                         var $this = $(this);
-                        var factor1 = $.cookie('factor1');
-                        if ((factor1 === null) || (typeof factor1 === 'undefined')) {
-                            factor1 = '30';
+                        var factor1 = '30',
                             factor2 = '70';
-                        } else {
-                            factor2 = 100 - factor1;
+                        if (!_.isUndefined(authuser.user) && !_.isEmpty(authuser.user)) {
+                            if (!_.isUndefined(authuser.user.persist_card_divider_position) && authuser.user.persist_card_divider_position !== null) {
+                                factor1 = authuser.user.persist_card_divider_position;
+                                factor2 = 100 - factor1;
+                            }
                         }
                         $this.resizable({
                             handles: 'e',
@@ -1446,7 +1447,27 @@ App.ModalCardView = Backbone.View.extend({
                                 $.cookie('factor1', f1);
                                 $this.css('width', f1 + '%');
                                 $this.next().css('width', f2 + '%');
-                            }
+                            },
+                            stop: function(event, ui) {
+                                var x = ui.element.outerWidth();
+                                var factor = x * 100 / $(this).parent().width();
+                                if (!_.isUndefined(authuser.user) && !_.isEmpty(authuser.user)) {
+                                    var data = {
+                                        persist_card_divider_position: factor
+                                    };
+                                    var user = new App.User();
+                                    user.url = api_url + 'users/' + authuser.user.id + '.json';
+                                    user.set('id', parseInt(authuser.user.id));
+                                    user.save(data, {
+                                        success: function(model, response) {
+                                            var Auth = JSON.parse($.cookie('auth'));
+                                            Auth.user.persist_card_divider_position = factor;
+                                            $.cookie('auth', JSON.stringify(Auth));
+                                            authuser = Auth;
+                                        }
+                                    });
+                                }
+                            },
                         }).css({
                             width: factor1 + '%'
                         }).next().css({
@@ -1713,12 +1734,13 @@ App.ModalCardView = Backbone.View.extend({
     resizeSplitter: function() {
         $('.editor').each(function() {
             var $this = $(this);
-            var factor1 = $.cookie('factor1');
-            if ((factor1 === null) || (typeof factor1 === 'undefined')) {
-                factor1 = '30';
+            var factor1 = '30',
                 factor2 = '70';
-            } else {
-                factor2 = 100 - factor1;
+            if (!_.isUndefined(authuser.user) && !_.isEmpty(authuser.user)) {
+                if (!_.isUndefined(authuser.user.persist_card_divider_position) && authuser.user.persist_card_divider_position !== null) {
+                    factor1 = authuser.user.persist_card_divider_position;
+                    factor2 = 100 - factor1;
+                }
             }
             $this.resizable({
                 handles: 'e',
@@ -1731,7 +1753,27 @@ App.ModalCardView = Backbone.View.extend({
                     $.cookie('factor1', f1);
                     $this.css('width', f1 + '%');
                     $this.next().css('width', f2 + '%');
-                }
+                },
+                stop: function(event, ui) {
+                    var x = ui.element.outerWidth();
+                    var factor = x * 100 / $(this).parent().width();
+                    if (!_.isUndefined(authuser.user) && !_.isEmpty(authuser.user)) {
+                        var data = {
+                            persist_card_divider_position: factor
+                        };
+                        var user = new App.User();
+                        user.url = api_url + 'users/' + authuser.user.id + '.json';
+                        user.set('id', parseInt(authuser.user.id));
+                        user.save(data, {
+                            success: function(model, response) {
+                                var Auth = JSON.parse($.cookie('auth'));
+                                Auth.user.persist_card_divider_position = factor;
+                                $.cookie('auth', JSON.stringify(Auth));
+                                authuser = Auth;
+                            }
+                        });
+                    }
+                },
             }).css({
                 width: factor1 + '%'
             }).next().css({
@@ -2632,7 +2674,7 @@ App.ModalCardView = Backbone.View.extend({
                     model: slabel,
                     background: self.getLabelcolor('' + slabel.attributes.name).substring(0, 6)
                 });
-                view_label.prepend(view.render().el);
+                view_label.append(view.render().el);
             }
         });
         _(function() {
@@ -4031,6 +4073,8 @@ App.ModalCardView = Backbone.View.extend({
         var self = this;
         var data = $(e.currentTarget).serializeObject();
         data.uuid = new Date().getTime();
+        var current_list_id = self.model.attributes.list_id;
+        var current_board_id = self.model.attributes.board_id;
         var card = new App.Card();
         card.set('is_offline', true);
         card.set('name', data.name);
@@ -4085,9 +4129,11 @@ App.ModalCardView = Backbone.View.extend({
                     card.set('board_id', parseInt(response.cards.board_id));
                     card.set('id', parseInt(response.id));
                     card.board_users = self.model.list.board_users;
-                    var new_list = App.boards.get(parseInt(response.cards.board_id)).lists.get(parseInt(response.cards.list_id));
-                    if (!_.isEmpty(new_list) && !_.isUndefined(new_list)) {
-                        card.list = new_list;
+                    if (card.attributes.list_id !== parseInt(current_list_id) && card.attributes.board_id !== parseInt(current_board_id)) {
+                        var new_list = App.boards.get(parseInt(response.cards.board_id)).lists.get(parseInt(response.cards.list_id));
+                        if (!_.isEmpty(new_list) && !_.isUndefined(new_list)) {
+                            card.list = new_list;
+                        }
                     } else {
                         card.list = self.model.list;
                     }

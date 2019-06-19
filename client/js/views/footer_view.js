@@ -89,11 +89,13 @@ App.FooterView = Backbone.View.extend({
         'click .js-show-board-import-wekan-form': 'showBoardImportWekanForm',
         'click .js-show-board-import-kantree-form': 'showBoardImportKantreeForm',
         'click .js-show-board-import-taiga-form': 'showBoardImportTaigaForm',
+        'click .js-show-board-import-pipefy-form': 'showBoardImportpipefyForm',
         'click .js-show-board-import-asana-form': 'showBoardImportAsanaForm',
         'click .js-show-board-import-taskwarrior-form': 'showBoardImportTaskwarriorForm',
         'change .js-board-import-wekan-file': 'importWekanBoard',
         'change .js-board-import-kantree-file': 'importKantreeBoard',
         'change .js-board-import-taiga-file': 'importTaigaBoard',
+        'change .js-board-import-pipefy-file': 'importpipefyBoard',
         'change .js-board-import-asana-file': 'importAsanaBoard',
         'change .js-board-import-taskwarrior-file': 'importTaskwarriorBoard',
         'click .js-closed-boards': 'renderClosedBoards',
@@ -1514,6 +1516,12 @@ App.FooterView = Backbone.View.extend({
                                                     App.boards.get(parseInt(activity.attributes.board_id)).lists.get(parseInt(activity.attributes.list_id)).set('card_count', (updated_card_list_cards.length === 0) ? 0 : updated_card_list_cards.length - 1);
                                                 }
                                                 // Reducing the card count of the old list
+                                                if (!_.isEmpty(card_old_list) && !_.isUndefined(card_old_list) && card_old_list !== null) {
+                                                    var card_old_list_card_count = isNaN(card_old_list.attributes.card_count) ? 0 : card_old_list.attributes.card_count;
+                                                    if (!isNaN(card_old_list_card_count) && parseInt(card_old_list_card_count) !== 0 && card_old_list_card_count !== null) {
+                                                        card_old_list.set('card_count', parseInt(card_old_list_card_count) - 1);
+                                                    }
+                                                }
                                                 if (parseInt(card_old_list.attributes.card_count) === 0) {
                                                     // Adding the &nbsp; for the list with no card
                                                     $('#js-card-listing-' + card_old_list.id).find('.js-list-placeholder-' + card_old_list.id).remove();
@@ -1932,9 +1940,14 @@ App.FooterView = Backbone.View.extend({
                                 var _new_board = new App.Board();
                                 _new_board.set('id', parseInt(activity.attributes.board_id));
                                 _new_board.set('name', filterXSS(activity.attributes.board_name));
+                                _new_board.set('is_closed', 0);
                                 if (!_.isUndefined(activity.attributes.board) && !_.isEmpty(activity.attributes.board) && activity.attributes.board !== null) {
                                     var tmp_new_board = activity.attributes.board;
+                                    _new_board.set('organization_id', parseInt(tmp_new_board.organization_id));
                                     _new_board.set('board_visibility', parseInt(tmp_new_board.board_visibility));
+                                    if (!_.isUndefined(tmp_new_board.organization_name) && !_.isEmpty(tmp_new_board.organization_name) && tmp_new_board.organization_name !== null) {
+                                        _new_board.set('organization_name', tmp_new_board.organization_name);
+                                    }
                                     if (!_.isUndefined(tmp_new_board.background_pattern_url) && !_.isEmpty(tmp_new_board.background_pattern_url) && tmp_new_board.background_pattern_url !== null) {
                                         _new_board.set('background_pattern_url', tmp_new_board.background_pattern_url);
                                     }
@@ -2351,6 +2364,19 @@ App.FooterView = Backbone.View.extend({
         return false;
     },
     /**
+     * showBoardImportpipefyForm()
+     * show Board Import Form
+     * @param e
+     * @type Object(DOM event)
+     *
+     */
+    showBoardImportpipefyForm: function(e) {
+        e.preventDefault();
+        var form = $('#js-board-import-pipefy');
+        $('.js-board-import-pipefy-file', form).trigger('click');
+        return false;
+    },
+    /**
      * importWekanBoard()
      * import Board
      * @param e
@@ -2565,6 +2591,50 @@ App.FooterView = Backbone.View.extend({
             }
         });
     },
+    /**
+     * importpipefyBoard()
+     * import Board
+     * @param e
+     * @type Object(DOM event)
+     *
+     */
+    importpipefyBoard: function(e) {
+        e.preventDefault();
+        $('#js-board-import-pipefy-loader').removeClass('hide');
+        var self = this;
+        var form = $('form#js-board-import-pipefy');
+        var fileData = new FormData(form[0]);
+        var board = new App.Board();
+        board.url = api_url + 'boards.json';
+        board.save(fileData, {
+            type: 'POST',
+            data: fileData,
+            processData: false,
+            cache: false,
+            contentType: false,
+            error: function(e, s) {
+                $('#js-board-import-pipefy-loader', '.js-show-board-import-pipefy-form').parent('.js-show-board-import-pipefy-form').addClass('hide');
+            },
+            success: function(model, response) {
+                $('#js-board-import-pipefy-loader', '.js-show-board-import-pipefy-form').addClass('hide');
+                if (!_.isUndefined(response.id)) {
+                    app.navigate('#/board/' + response.id, {
+                        trigger: true,
+                        replace: true
+                    });
+                    self.flash('info', i18next.t('Board is been currently imported. Based on the size of file, it may take few seconds to minutes. Please refresh or check after some time..'), 1800000);
+                } else {
+                    if (response.error) {
+                        self.flash('danger', i18next.t(response.error));
+                    } else {
+                        self.flash('danger', i18next.t('Unable to import. please try again.'));
+                    }
+
+                }
+            }
+        });
+    },
+
     /**
      * importBoard()
      * import Board

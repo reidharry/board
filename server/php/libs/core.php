@@ -371,10 +371,9 @@ function insertActivity($user_id, $comment, $type, $foreign_ids = array() , $rev
         $materialized_path,
         $path,
         $depth,
-        $freshness_ts,
         $row['id']
     );
-    $result = pg_query_params($db_lnk, 'UPDATE activities SET materialized_path = $1, path = $2, depth = $3, freshness_ts = $4 WHERE id = $5 RETURNING *', $qry_val_arr);
+    $result = pg_query_params($db_lnk, 'UPDATE activities SET materialized_path = $1, path = $2, depth = $3, freshness_ts = now() WHERE id = $4 RETURNING *', $qry_val_arr);
     $row = pg_fetch_assoc($result);
     $qry_val_arr = array(
         $row['id']
@@ -3032,6 +3031,199 @@ function importTaskWarriorBoard($jsonArr = array())
     }
 }
 /**
+ * Import Pipefy board
+ *
+ * @param array $board Boards from Pipefy
+ *
+ * @return mixed
+ */
+function importpipefyBoard($board = array())
+{
+    global $r_debug, $db_lnk, $authUser, $_server_domain_url;
+    $users = $userNames = $lists = $listNames = $cards = $cardLists = $labels = array();
+    if (!empty($board)) {
+        $user_id = $authUser['id'];
+        foreach ($board as $key => $value) {
+            if (!empty($value['Current phase']) && $value['Current phase'] !== 'NULL') {
+                if (empty($data['lists'][$value['Current phase']])) {
+                    $data['lists'][$value['Current phase']] = $value['Current phase'];
+                }
+            }
+            if (!empty($value['Labels']) && $value['Labels'] !== 'NULL') {
+                $temp_lables = explode(', ', $value['Labels']);
+                foreach ($temp_lables as $tmp_label) {
+                    if (empty($data['labels'][$tmp_label])) {
+                        $data['labels'][$tmp_label] = $tmp_label;
+                    }
+                };
+            }
+            if (!empty($value['Creator']) && $value['Creator'] !== 'NULL') {
+                if (empty($data['creators'][$value['Creator']])) {
+                    $data['creators'][$value['Creator']] = $value['Creator'];
+                }
+            }
+        }
+        // insert new board
+        $qry_val_arr = array(
+            'Pipefy Board',
+            2,
+            $user_id
+        );
+        $new_board = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO boards (created, modified, name, board_visibility, user_id) VALUES (now(), now(), $1, $2, $3) RETURNING id', $qry_val_arr));
+        // insert current user as board member
+        $qry_val_arr = array(
+            $authUser['id'],
+            $new_board['id'],
+            1
+        );
+        pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO boards_users (created, modified, user_id, board_id, board_user_role_id) VALUES (now(), now(), $1, $2, $3) RETURNING id', $qry_val_arr));
+        $auto_subscribe_on_board = (AUTO_SUBSCRIBE_ON_BOARD === 'Enabled') ? 'true' : false;
+        if ($auto_subscribe_on_board) {
+            $qry_val_arr = array(
+                $authUser['id'],
+                $new_board['id'],
+                true
+            );
+            pg_query_params($db_lnk, 'INSERT INTO board_subscribers (created, modified, user_id, board_id, is_subscribed) VALUES (now(), now(), $1, $2, $3)', $qry_val_arr);
+        }
+        // insert labels
+        if (!empty($data['labels'])) {
+            foreach ($data['labels'] as $label) {
+                if (!empty($label)) {
+                    $qry_val_arr = array(
+                        utf8_decode($label)
+                    );
+                    $check_label = executeQuery('SELECT id FROM labels WHERE name = $1', $qry_val_arr);
+                    if (empty($check_label)) {
+                        $qry_val_arr = array(
+                            utf8_decode($label)
+                        );
+                        $check_label = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO labels (created, modified, name) VALUES (now(), now(), $1) RETURNING id', $qry_val_arr));
+                    }
+                    $labels[$label] = $check_label['id'];
+                }
+            }
+        }
+        // insert board members
+        if (!empty($data['creators'])) {
+            foreach ($data['creators'] as $boarduser) {
+                if (empty($users[$boarduser])) {
+                    $member = array(
+                        'id' => $boarduser,
+                        'username' => strtolower($boarduser) ,
+                        'fullName' => $boarduser,
+                        'avatarUrl' => null,
+                        'initials' => strtoupper(substr($boarduser, 0, 1))
+                    );
+                    $users = importMember($member, $new_board, 'pipefy');
+                    $userNames[$boarduser] = $users[$boarduser];
+                }
+            }
+        }
+        // insert lists
+        if (!empty($data['lists'])) {
+            $i = 0;
+            foreach ($data['lists'] as $list) {
+                $i+= 1;
+                if (!in_array($list, $listNames)) {
+                    $qry_val_arr = array(
+                        utf8_decode($list) ,
+                        $new_board['id'],
+                        $i,
+                        $user_id
+                    );
+                    $_list = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO lists (created, modified, name, board_id, position, color, user_id) VALUES (now(), now(), $1, $2, $3, NULL, $4) RETURNING id', $qry_val_arr));
+                    $lists[$list] = $_list['id'];
+                    $listNames[$list] = $list;
+                }
+            }
+        }
+        //Import cards
+        $i = 0;
+        foreach ($board as $key => $card) {
+            $i+= 1;
+            $is_closed = 'false';
+            $date = (!empty($card['Due date']) && $card['Due date'] !== 'NULL') ? date('Y-m-d H:i:s', strtotime($card['Due date'])) : NULL;
+            if (isset($card['Describe this bug']) && !empty($card['Describe this bug']) && $card['Describe this bug'] !== 'NULL') {
+                $description = $card['Describe this bug'];
+            } else {
+                $description = '';
+            }
+            $card_user_id = (!empty($card['Creator']) && $card['Creator'] !== "NULL") ? $userNames[$card['Creator']] : $user_id;
+            $created_at = (!empty($card['Created at']) && $card['Created at'] !== "NULL") ? date('Y-m-d H:i:s', strtotime($card['Created at'])) : date('Y-m-d H:i:s');
+            $updated_at = (!empty($card['Updated at']) && $card['Updated at'] !== "NULL") ? date('Y-m-d H:i:s', strtotime($card['Updated at'])) : date('Y-m-d H:i:s');
+            $qry_val_arr = array(
+                $new_board['id'],
+                $lists[$card['Current phase']],
+                utf8_decode($card['Title']) ,
+                $description,
+                $is_closed,
+                $i,
+                $date,
+                $card_user_id,
+                $created_at,
+                $updated_at
+            );
+            $_card = pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO cards (created, modified, board_id, list_id, name, description, is_archived, position, due_date, user_id) VALUES ($9, $10, $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id', $qry_val_arr));
+            $cards[$card['ID']] = $_card['id'];
+            if (!empty($card['Labels']) && $card['Labels'] !== 'NULL') {
+                $label_names = explode(', ', $card['Labels']);
+                if (!empty($label_names)) {
+                    foreach ($label_names as $label) {
+                        $qry_val_arr = array(
+                            $new_board['id'],
+                            $lists[$card['Current phase']],
+                            $_card['id'],
+                            $labels[$label]
+                        );
+                        pg_query_params($db_lnk, 'INSERT INTO cards_labels (created, modified, board_id, list_id, card_id, label_id) VALUES (now(), now(), $1, $2, $3, $4)', $qry_val_arr);
+                    }
+                }
+            }
+            if (!empty($card['Attach screenshots of the bug']) && $card['Attach screenshots of the bug'] !== 'NULL') {
+                $card_attachments = explode(', ', $card['Attach screenshots of the bug']);
+                foreach ($card_attachments as $attachment) {
+                    $mediadir = MEDIA_PATH . DS . 'Card' . DS . $_card['id'];
+                    $save_path = 'Card' . DS . $_card['id'];
+                    $save_path = str_replace('\\', '/', $save_path);
+                    $filename = curlExecute($attachment, 'get', $mediadir, 'image');
+                    $path = $save_path . DS . $filename['file_name'];
+                    $qry_val_arr = array(
+                        $new_board['id'],
+                        $lists[$card['Current phase']],
+                        $_card['id'],
+                        $filename['file_name'],
+                        $path
+                    );
+                    pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO card_attachments (created, modified, board_id, list_id, card_id, name, path, mimetype) VALUES (now(), now(), $1, $2, $3, $4, $5, NULL) RETURNING id', $qry_val_arr));
+                }
+            }
+            if (!empty($card['Assignees'])) {
+                $card_assignees = explode(', ', $card['Assignees']);
+                foreach ($card_assignees as $cardMember) {
+                    if (empty($users[$cardMember])) {
+                        $member = array(
+                            'id' => $cardMember,
+                            'username' => strtolower($cardMember) ,
+                            'fullName' => $cardMember,
+                            'avatarUrl' => null,
+                            'initials' => strtoupper(substr($cardMember, 0, 1))
+                        );
+                        $users = importMember($member, $new_board, 'pipefy');
+                        $userNames[$cardMember] = $cardMember;
+                    }
+                    $qry_val_arr = array(
+                        $_card['id'],
+                        $users[$cardMember]
+                    );
+                    pg_fetch_assoc(pg_query_params($db_lnk, 'INSERT INTO cards_users (created, modified, card_id, user_id) VALUES (now(), now(), $1, $2) RETURNING id', $qry_val_arr));
+                }
+            }
+        }
+        return $new_board;
+    }
+}
+/**
  * Email to name
  *
  * @param string $email Email
@@ -3457,4 +3649,424 @@ function __l($text)
         return $locales[$text];
     }
     return $text;
+}
+/**
+ * E-mail notification
+ *
+ * @return mail
+ */
+function sendMailNotification($notification_type)
+{
+    global $r_debug, $db_lnk, $_server_domain_url;
+    $qry_val_arr = array(
+        $notification_type
+    );
+    $users_result = pg_query_params($db_lnk, 'SELECT users.id, users.username, users.email, users.full_name, users.last_email_notified_activity_id, users.timezone, users.language, (SELECT array_to_json(array_agg(row_to_json(d))) FROM (SELECT bs.board_id FROM board_subscribers bs WHERE bs.user_id = users.id AND bs.is_subscribed = \'t\') d) AS board_ids, (SELECT array_to_json(array_agg(row_to_json(d))) FROM (SELECT ls.list_id, l.board_id FROM list_subscribers ls, lists l WHERE ls.user_id = users.id AND l.id = ls.list_id AND ls.is_subscribed = \'t\') d) AS list_ids,(SELECT array_to_json(array_agg(row_to_json(d))) FROM (SELECT cs.card_id, c.list_id, c.board_id FROM card_subscribers cs, cards c WHERE cs.user_id = users.id AND c.id = cs.card_id AND cs.is_subscribed = \'t\') d) AS card_ids FROM users WHERE is_send_newsletter = $1', $qry_val_arr);
+    while ($user = pg_fetch_assoc($users_result)) {
+        $board_ids = $list_ids = $card_ids = array();
+        $board_arr = (!empty($user['board_ids'])) ? array_filter(json_decode($user['board_ids'], true)) : '';
+        $list_arr = (!empty($user['list_ids'])) ? array_filter(json_decode($user['list_ids'], true)) : '';
+        $card_arr = (!empty($user['card_ids'])) ? array_filter(json_decode($user['card_ids'], true)) : '';
+        if (!empty($board_arr) && is_array($board_arr)) {
+            foreach ($board_arr as $boards) {
+                $board_ids[] = $boards['board_id'];
+            }
+        }
+        if (!empty($list_arr) && is_array($list_arr)) {
+            foreach ($list_arr as $lists) {
+                if (!in_array($lists['board_id'], $board_ids)) {
+                    $list_ids[] = $lists['list_id'];
+                }
+            }
+        }
+        if (!empty($card_arr) && is_array($card_arr)) {
+            foreach ($card_arr as $cards) {
+                if (!in_array($cards['board_id'], $board_ids) && !in_array($cards['list_id'], $list_ids)) {
+                    $card_ids[] = $cards['card_id'];
+                }
+            }
+        }
+        $mail_content = $mentioned_mail_content = '';
+        $activities_result = '';
+        $notification_count = 0;
+        $reply_to_mail = '';
+        $reply_to = '';
+        if (!empty($board_ids)) {
+            $qry_arr = array(
+                $user['last_email_notified_activity_id'],
+                $user['id'],
+                '{' . implode(',', $board_ids) . '}'
+            );
+            $activities_result = pg_query_params($db_lnk, 'SELECT * FROM activities_listing WHERE id > $1 AND user_id != $2 AND board_id = ANY ($3) ORDER BY id DESC', $qry_arr);
+            $i = 0;
+            $tmp_card_id = '';
+            while ($activity = pg_fetch_assoc($activities_result)) {
+                if (!empty($activity['profile_picture_path'])) {
+                    $hash = md5(SECURITYSALT . 'User' . $activity['user_id'] . 'png' . 'small_thumb');
+                    $profile_picture_path = $_server_domain_url . '/img/small_thumb/User/' . $activity['user_id'] . '.' . $hash . '.png';
+                    $user_avatar = '<img style="margin-right: 10px;vertical-align: middle;" src="' . $profile_picture_path . '" alt="[Image: ' . $activity['full_name'] . ']" class="img-rounded img-responsive">' . "\n";
+                } else if (!empty($activity['initials'])) {
+                    $user_avatar = '<i style="border-radius:4px;text-shadow:#6f6f6f 0.02em 0.02em 0.02em;width:32px;height:32px;line-height:32px;font-size:16px;display:inline-block;font-style:normal;text-align:center;text-transform:uppercase;color:#f47564 !important;background-color:#ffffff !important;border:1px solid #d7d9db;margin-right: 10px;">' . $activity['initials'] . '</i>' . "\n";
+                }
+                if (empty($i)) {
+                    $activity_id[] = $activity['id'];
+                    $i++;
+                }
+                $is_mention_activity = 0;
+                if ($activity['type'] == 'add_comment' || $activity['type'] == 'edit_comment') {
+                    preg_match_all('/@([^ ]*)/', $activity['comment'], $matches);
+                    if (in_array($user['username'], $matches[1])) {
+                        $mentioned_activity = $activity;
+                        $is_mention_activity = 1;
+                        $mentioned_activity['comment'] = __l('##USER_NAME## has mentioned you in card ##CARD_NAME## on ##BOARD_NAME##') . '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $activity['comment'] . '</div></div></div>';
+                        $activity['comment'] = '';
+                    } else {
+                        $activity['comment'] = __l('##USER_NAME## commented to the card ##CARD_NAME## on ##BOARD_NAME##') . '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $activity['comment'] . '</div></div></div>';
+                    }
+                    $br = '<div style="line-height:20px;">&nbsp;</div>';
+                } else {
+                    if ($is_mention_activity) {
+                        $mentioned_activity['comment'].= __l(' on ##BOARD_NAME##');
+                        $br = '<div style="line-height:40px;">&nbsp;</div>';
+                    } else {
+                        $activity['comment'].= __l(' on ##BOARD_NAME##');
+                        $br = '<div style="line-height:40px;">&nbsp;</div>';
+                    }
+                }
+                if (!empty($activity['card_id']) && IMAP_EMAIL) {
+                    $imap_email = explode("@", IMAP_EMAIL);
+                    $board_email = $imap_email[0] . '+' . $activity['board_id'] . '+' . $activity['card_id'] . '+' . md5(SECURITYSALT . $activity['board_id'] . $activity['card_id']) . '@' . $imap_email[1];
+                    $qry_arr = array(
+                        $activity['card_id']
+                    );
+                    $card = pg_query_params($db_lnk, 'SELECT * FROM cards WHERE id = $1', $qry_arr);
+                    $card = pg_fetch_assoc($card);
+                    $mail_to = 'mailto:' . $board_email . '?subject=RE:' . $card['name'];
+                    if (empty($tmp_card_id) || $tmp_card_id == $activity['card_id']) {
+                        $reply_to_mail = $board_email;
+                    } else {
+                        $reply_to_mail = '';
+                    }
+                    $tmp_card_id = $activity['card_id'];
+                    $reply_to = '<div style="margin:5px 0px 0px 43px;"><a href="' . $mail_to . '" target="_blank">Reply via email</a></div>' . "\n";
+                }
+                if (!empty($activity['revisions']) && trim($activity['revisions']) !== '') {
+                    $revisions = unserialize($activity['revisions']);
+                    $activity['revisions'] = $revisions;
+                    unset($dif);
+                    if (!empty($revisions['new_value'])) {
+                        foreach ($revisions['new_value'] as $key => $value) {
+                            if ($key != 'is_archived' && $key != 'is_deleted' && $key != 'created' && $key != 'modified' && $key != 'is_offline' && $key != 'uuid' && $key != 'to_date' && $key != 'temp_id' && $activity['type'] != 'moved_card_checklist_item' && $activity['type'] != 'add_card_desc' && $activity['type'] != 'add_card_duedate' && $activity['type'] != 'delete_card_duedate' && $activity['type'] != 'add_background' && $activity['type'] != 'change_background' && $activity['type'] != 'change_visibility' && $activity['type'] != 'change_card_position') {
+                                $old_val = (isset($revisions['old_value'][$key]) && $revisions['old_value'][$key] != null && $revisions['old_value'][$key] != 'null') ? $revisions['old_value'][$key] : '';
+                                $new_val = (isset($revisions['new_value'][$key]) && $revisions['new_value'][$key] != null && $revisions['new_value'][$key] != 'null') ? $revisions['new_value'][$key] : '';
+                                $dif[] = nl2br(getRevisiondifference($old_val, $new_val));
+                            }
+                            if ($activity['type'] == 'add_card_desc' || $activity['type'] == 'add_card_desc' || $activity['type'] == '	edit_card_duedate' || $activity['type'] == 'add_background' || $activity['type'] == 'change_background' || $activity['type'] == 'change_visibility') {
+                                $dif[] = $revisions['new_value'][$key];
+                            }
+                        }
+                    } else if (!empty($revisions['old_value']) && isset($activity['type']) && $activity['type'] == 'delete_card_comment') {
+                        $dif[] = nl2br(getRevisiondifference($revisions['old_value'], ''));
+                    }
+                    if (isset($dif)) {
+                        $activity['difference'] = $dif;
+                    }
+                    if (!empty($activity['difference'][0])) {
+                        $search = array(
+                            '<del',
+                            '<ins'
+                        );
+                        $replace = array(
+                            '<del style="padding: 0px 3px;font-size: 90%;line-height: 1;text-align: center;white-space: nowrap;vertical-align: baseline;background: #e5bdb2;color: #a82400;margin-left: 3px;"',
+                            '<ins style="padding: 0px 3px;font-size: 90%;line-height: 1;text-align: center;white-space: nowrap;vertical-align: baseline;background: #d1e1ad;color: #405a04;text-decoration: none;margin-right: 3px;"'
+                        );
+                        $difference = str_replace($search, $replace, $activity['difference'][0]);
+                        if ($is_mention_activity) {
+                            $mentioned_activity['comment'].= '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $difference . '</div></div></div>';
+                        } else {
+                            $activity['comment'].= '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $difference . '</div></div></div>';
+                        }
+                    }
+                }
+                if ($is_mention_activity) {
+                    $comment = findAndReplaceVariables($mentioned_activity);
+                    $mentioned_mail_content.= '<div>' . "\n";
+                    $mentioned_mail_content.= '<div style="float:left">' . $user_avatar . '</div>' . "\n";
+                    $mentioned_mail_content.= '<div>' . $comment . $reply_to . '</div>' . "\n";
+                    $mentioned_mail_content.= '</div>' . "\n";
+                    $mentioned_mail_content.= $br . "\n";
+                } else {
+                    $comment = findAndReplaceVariables($activity);
+                    $mail_content.= '<div>' . "\n";
+                    $mail_content.= '<div style="float:left">' . $user_avatar . '</div>' . "\n";
+                    $mail_content.= '<div>' . $comment . $reply_to . '</div>' . "\n";
+                    $mail_content.= '</div>' . "\n";
+                    $mail_content.= $br . "\n";
+                }
+                $notification_count++;
+            }
+        }
+        if (!empty($list_ids)) {
+            $qry_arr = array(
+                $user['last_email_notified_activity_id'],
+                $user['id'],
+                '{' . implode(',', $list_ids) . '}'
+            );
+            $activities_result = pg_query_params($db_lnk, 'SELECT * FROM activities_listing WHERE id > $1 AND user_id != $2 AND list_id = ANY ($3) ORDER BY id DESC', $qry_arr);
+            $i = 0;
+            $tmp_card_id = '';
+            while ($activity = pg_fetch_assoc($activities_result)) {
+                if (!empty($activity['profile_picture_path'])) {
+                    $hash = md5(SECURITYSALT . 'User' . $activity['user_id'] . 'png' . 'small_thumb');
+                    $profile_picture_path = $_server_domain_url . '/img/small_thumb/User/' . $activity['user_id'] . '.' . $hash . '.png';
+                    $user_avatar = '<img style="margin-right: 10px;vertical-align: middle;" src="' . $profile_picture_path . '" alt="[Image: ' . $activity['full_name'] . ']" class="img-rounded img-responsive">' . "\n";
+                } else if (!empty($activity['initials'])) {
+                    $user_avatar = '<i style="border-radius:4px;text-shadow:#6f6f6f 0.02em 0.02em 0.02em;width:32px;height:32px;line-height:32px;font-size:16px;display:inline-block;font-style:normal;text-align:center;text-transform:uppercase;color:#f47564 !important;background-color:#ffffff !important;border:1px solid #d7d9db;margin-right: 10px;">' . $activity['initials'] . '</i>' . "\n";
+                }
+                if (empty($i)) {
+                    $activity_id[] = $activity['id'];
+                    $i++;
+                }
+                $is_mention_activity = 0;
+                if ($activity['type'] == 'add_comment' || $activity['type'] == 'edit_comment') {
+                    preg_match_all('/@([^ ]*)/', $activity['comment'], $matches);
+                    if (in_array($user['username'], $matches[1])) {
+                        $mentioned_activity = $activity;
+                        $is_mention_activity = 1;
+                        $mentioned_activity['comment'] = __l('##USER_NAME## has mentioned you in card ##CARD_NAME## on ##BOARD_NAME##') . '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $activity['comment'] . '</div></div></div>';
+                        $activity['comment'] = '';
+                    } else {
+                        $activity['comment'] = __l('##USER_NAME## commented to the card ##CARD_NAME## on ##BOARD_NAME##') . '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $activity['comment'] . '</div></div></div>';
+                    }
+                    $br = '<div style="line-height:20px;">&nbsp;</div>';
+                } else {
+                    if ($is_mention_activity) {
+                        $mentioned_activity['comment'].= __l(' on ##BOARD_NAME##');
+                        $br = '<div style="line-height:40px;">&nbsp;</div>';
+                    } else {
+                        $activity['comment'].= __l(' on ##BOARD_NAME##');
+                        $br = '<div style="line-height:40px;">&nbsp;</div>';
+                    }
+                }
+                if (!empty($activity['card_id']) && IMAP_EMAIL) {
+                    $imap_email = explode("@", IMAP_EMAIL);
+                    $board_email = $imap_email[0] . '+' . $activity['board_id'] . '+' . $activity['card_id'] . '+' . md5(SECURITYSALT . $activity['board_id'] . $activity['card_id']) . '@' . $imap_email[1];
+                    $qry_arr = array(
+                        $activity['card_id']
+                    );
+                    $card = pg_query_params($db_lnk, 'SELECT * FROM cards WHERE id = $1', $qry_arr);
+                    $card = pg_fetch_assoc($card);
+                    $mail_to = 'mailto:' . $board_email . '?subject=RE:' . $card['name'];
+                    if (empty($tmp_card_id) || $tmp_card_id == $activity['card_id']) {
+                        $reply_to_mail = $board_email;
+                    } else {
+                        $reply_to_mail = '';
+                    }
+                    $tmp_card_id = $activity['card_id'];
+                    $reply_to = '<div style="margin:5px 0px 0px 43px;"><a href="' . $mail_to . '" target="_blank">Reply via email</a></div>' . "\n";
+                }
+                if (!empty($activity['revisions']) && trim($activity['revisions']) !== '') {
+                    $revisions = unserialize($activity['revisions']);
+                    $activity['revisions'] = $revisions;
+                    unset($dif);
+                    if (!empty($revisions['new_value'])) {
+                        foreach ($revisions['new_value'] as $key => $value) {
+                            if ($key != 'is_archived' && $key != 'is_deleted' && $key != 'created' && $key != 'modified' && $key != 'is_offline' && $key != 'uuid' && $key != 'to_date' && $key != 'temp_id' && $activity['type'] != 'moved_card_checklist_item' && $activity['type'] != 'add_card_desc' && $activity['type'] != 'add_card_duedate' && $activity['type'] != 'delete_card_duedate' && $activity['type'] != 'add_background' && $activity['type'] != 'change_background' && $activity['type'] != 'change_visibility') {
+                                $old_val = (isset($revisions['old_value'][$key]) && $revisions['old_value'][$key] != null && $revisions['old_value'][$key] != 'null') ? $revisions['old_value'][$key] : '';
+                                $new_val = (isset($revisions['new_value'][$key]) && $revisions['new_value'][$key] != null && $revisions['new_value'][$key] != 'null') ? $revisions['new_value'][$key] : '';
+                                $dif[] = nl2br(getRevisiondifference($old_val, $new_val));
+                            }
+                            if ($activity['type'] == 'add_card_desc' || $activity['type'] == 'add_card_desc' || $activity['type'] == '	edit_card_duedate' || $activity['type'] == 'add_background' || $activity['type'] == 'change_background' || $activity['type'] == 'change_visibility') {
+                                $dif[] = $revisions['new_value'][$key];
+                            }
+                        }
+                    } else if (!empty($revisions['old_value']) && isset($activity['type']) && $activity['type'] == 'delete_card_comment') {
+                        $dif[] = nl2br(getRevisiondifference($revisions['old_value'], ''));
+                    }
+                    if (isset($dif)) {
+                        $activity['difference'] = $dif;
+                    }
+                    if (!empty($activity['difference'][0])) {
+                        $search = array(
+                            '<del',
+                            '<ins'
+                        );
+                        $replace = array(
+                            '<del style="padding: 0px 3px;font-size: 90%;line-height: 1;text-align: center;white-space: nowrap;vertical-align: baseline;background: #e5bdb2;color: #a82400;margin-left: 3px;"',
+                            '<ins style="padding: 0px 3px;font-size: 90%;line-height: 1;text-align: center;white-space: nowrap;vertical-align: baseline;background: #d1e1ad;color: #405a04;text-decoration: none;margin-right: 3px;"'
+                        );
+                        $difference = str_replace($search, $replace, $activity['difference'][0]);
+                        if ($is_mention_activity) {
+                            $mentioned_activity['comment'].= '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $difference . '</div></div></div>';
+                        } else {
+                            $activity['comment'].= '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $difference . '</div></div></div>';
+                        }
+                    }
+                }
+                if ($is_mention_activity) {
+                    $comment = findAndReplaceVariables($mentioned_activity);
+                    $mentioned_mail_content.= '<div>' . "\n";
+                    $mentioned_mail_content.= '<div style="float:left">' . $user_avatar . '</div>' . "\n";
+                    $mentioned_mail_content.= '<div>' . $comment . $reply_to . '</div>' . "\n";
+                    $mentioned_mail_content.= '</div>' . "\n";
+                    $mentioned_mail_content.= $br . "\n";
+                } else {
+                    $comment = findAndReplaceVariables($activity);
+                    $mail_content.= '<div>' . "\n";
+                    $mail_content.= '<div style="float:left">' . $user_avatar . '</div>' . "\n";
+                    $mail_content.= '<div>' . $comment . $reply_to . '</div>' . "\n";
+                    $mail_content.= '</div>' . "\n";
+                    $mail_content.= $br . "\n";
+                }
+                $notification_count++;
+            }
+        }
+        if (!empty($card_ids)) {
+            $qry_arr = array(
+                $user['last_email_notified_activity_id'],
+                $user['id'],
+                '{' . implode(',', $card_ids) . '}'
+            );
+            $activities_result = pg_query_params($db_lnk, 'SELECT * FROM activities_listing WHERE id > $1 AND user_id != $2 AND card_id = ANY ($3) ORDER BY id DESC', $qry_arr);
+            $i = 0;
+            $tmp_card_id = '';
+            while ($activity = pg_fetch_assoc($activities_result)) {
+                if (!empty($activity['profile_picture_path'])) {
+                    $hash = md5(SECURITYSALT . 'User' . $activity['user_id'] . 'png' . 'small_thumb');
+                    $profile_picture_path = $_server_domain_url . '/img/small_thumb/User/' . $activity['user_id'] . '.' . $hash . '.png';
+                    $user_avatar = '<img style="margin-right: 10px;vertical-align: middle;" src="' . $profile_picture_path . '" alt="[Image: ' . $activity['full_name'] . ']" class="img-rounded img-responsive">' . "\n";
+                } else if (!empty($activity['initials'])) {
+                    $user_avatar = '<i style="border-radius:4px;text-shadow:#6f6f6f 0.02em 0.02em 0.02em;width:32px;height:32px;line-height:32px;font-size:16px;display:inline-block;font-style:normal;text-align:center;text-transform:uppercase;color:#02aff1 !important;background-color:#ffffff !important;border:1px solid #d7d9db;margin-right: 10px;">' . $activity['initials'] . '</i>' . "\n";
+                }
+                if (empty($i)) {
+                    $activity_id[] = $activity['id'];
+                    $i++;
+                }
+                $is_mention_activity = 0;
+                if ($activity['type'] == 'add_comment' || $activity['type'] == 'edit_comment') {
+                    preg_match_all('/@([^ ]*)/', $activity['comment'], $matches);
+                    if (in_array($user['username'], $matches[1])) {
+                        $mentioned_activity = $activity;
+                        $is_mention_activity = 1;
+                        $mentioned_activity['comment'] = __l('##USER_NAME## has mentioned you in card ##CARD_NAME## on ##BOARD_NAME##') . '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $activity['comment'] . '</div></div></div>';
+                        $activity['comment'] = '';
+                    } else {
+                        $activity['comment'] = __l('##USER_NAME## commented to the card ##CARD_NAME## on ##BOARD_NAME##') . '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $activity['comment'] . '</div></div></div>';
+                    }
+                    $br = '<div style="line-height:20px;">&nbsp;</div>';
+                } else {
+                    if ($is_mention_activity) {
+                        $mentioned_activity['comment'].= __l(' on ##BOARD_NAME##');
+                        $br = '<div style="line-height:40px;">&nbsp;</div>';
+                    } else {
+                        $activity['comment'].= __l(' on ##BOARD_NAME##');
+                        $br = '<div style="line-height:40px;">&nbsp;</div>';
+                    }
+                }
+                if (!empty($activity['card_id']) && IMAP_EMAIL) {
+                    $imap_email = explode("@", IMAP_EMAIL);
+                    $board_email = $imap_email[0] . '+' . $activity['board_id'] . '+' . $activity['card_id'] . '+' . md5(SECURITYSALT . $activity['board_id'] . $activity['card_id']) . '@' . $imap_email[1];
+                    $qry_arr = array(
+                        $activity['card_id']
+                    );
+                    $card = pg_query_params($db_lnk, 'SELECT * FROM cards WHERE id = $1', $qry_arr);
+                    $card = pg_fetch_assoc($card);
+                    $mail_to = 'mailto:' . $board_email . '?subject=RE:' . $card['name'];
+                    if (empty($tmp_card_id) || $tmp_card_id == $activity['card_id']) {
+                        $reply_to_mail = $board_email;
+                    } else {
+                        $reply_to_mail = '';
+                    }
+                    $tmp_card_id = $activity['card_id'];
+                    $reply_to = '<div style="margin:5px 0px 0px 43px;"><a href="' . $mail_to . '" target="_blank">Reply via email</a></div>' . "\n";
+                }
+                if (!empty($activity['revisions']) && trim($activity['revisions']) !== '') {
+                    $revisions = unserialize($activity['revisions']);
+                    $activity['revisions'] = $revisions;
+                    unset($dif);
+                    if (!empty($revisions['new_value'])) {
+                        foreach ($revisions['new_value'] as $key => $value) {
+                            if ($key != 'is_archived' && $key != 'is_deleted' && $key != 'created' && $key != 'modified' && $key != 'is_offline' && $key != 'uuid' && $key != 'to_date' && $key != 'temp_id' && $activity['type'] != 'moved_card_checklist_item' && $activity['type'] != 'add_card_desc' && $activity['type'] != 'add_card_duedate' && $activity['type'] != 'delete_card_duedate' && $activity['type'] != 'add_background' && $activity['type'] != 'change_background' && $activity['type'] != 'change_visibility') {
+                                $old_val = (isset($revisions['old_value'][$key]) && $revisions['old_value'][$key] != null && $revisions['old_value'][$key] != 'null') ? $revisions['old_value'][$key] : '';
+                                $new_val = (isset($revisions['new_value'][$key]) && $revisions['new_value'][$key] != null && $revisions['new_value'][$key] != 'null') ? $revisions['new_value'][$key] : '';
+                                $dif[] = nl2br(getRevisiondifference($old_val, $new_val));
+                            }
+                            if ($activity['type'] == 'add_card_desc' || $activity['type'] == 'add_card_desc' || $activity['type'] == '	edit_card_duedate' || $activity['type'] == 'add_background' || $activity['type'] == 'change_background' || $activity['type'] == 'change_visibility') {
+                                $dif[] = $revisions['new_value'][$key];
+                            }
+                        }
+                    } else if (!empty($revisions['old_value']) && isset($activity['type']) && $activity['type'] == 'delete_card_comment') {
+                        $dif[] = nl2br(getRevisiondifference($revisions['old_value'], ''));
+                    }
+                    if (isset($dif)) {
+                        $activity['difference'] = $dif;
+                    }
+                    if (!empty($activity['difference'][0])) {
+                        $search = array(
+                            '<del',
+                            '<ins'
+                        );
+                        $replace = array(
+                            '<del style="padding: 0px 3px;font-size: 90%;line-height: 1;text-align: center;white-space: nowrap;vertical-align: baseline;background: #e5bdb2;color: #a82400;margin-left: 3px;"',
+                            '<ins style="padding: 0px 3px;font-size: 90%;line-height: 1;text-align: center;white-space: nowrap;vertical-align: baseline;background: #d1e1ad;color: #405a04;text-decoration: none;margin-right: 3px;"'
+                        );
+                        $difference = str_replace($search, $replace, $activity['difference'][0]);
+                        if ($is_mention_activity) {
+                            $mentioned_activity['comment'].= '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $difference . '</div></div></div>';
+                        } else {
+                            $activity['comment'].= '<div style="margin:5px 0px 0px 43px"><div style="background-color: #ffffff;border: 1px solid #dddddd;border-radius: 4px;display: block;line-height: 1.42857;margin:7px 0;padding: 4px;transition: all 0.2s ease-in-out 0s;"><div style="padding:3px 0px 0px 0px;margin:0px">' . $difference . '</div></div></div>';
+                        }
+                    }
+                }
+                if ($is_mention_activity) {
+                    $comment = findAndReplaceVariables($mentioned_activity);
+                    $mentioned_mail_content.= '<div>' . "\n";
+                    $mentioned_mail_content.= '<div style="float:left">' . $user_avatar . '</div>' . "\n";
+                    $mentioned_mail_content.= '<div>' . $comment . $reply_to . '</div>' . "\n";
+                    $mentioned_mail_content.= '</div>' . "\n";
+                    $mentioned_mail_content.= $br . "\n";
+                } else {
+                    $comment = findAndReplaceVariables($activity);
+                    $mail_content.= '<div>' . "\n";
+                    $mail_content.= '<div style="float:left">' . $user_avatar . '</div>' . "\n";
+                    $mail_content.= '<div>' . $comment . $reply_to . '</div>' . "\n";
+                    $mail_content.= '</div>' . "\n";
+                    $mail_content.= $br . "\n";
+                }
+                $notification_count++;
+            }
+        }
+        if (!empty($mail_content) || !empty($mentioned_mail_content)) {
+            $timezone = SITE_TIMEZONE;
+            if (!empty($user['timezone'])) {
+                $timezone = trim($user['timezone']);
+            }
+            $language = DEFAULT_LANGUAGE;
+            if (!empty($user['language'])) {
+                $language = $user['language'];
+            }
+            setlocale(LC_TIME, $language);
+            date_default_timezone_set($timezone);
+            $qry_arr = array(
+                max($activity_id) ,
+                $user['id']
+            );
+            $main_content = '';
+            if ($mentioned_mail_content) {
+                $main_content = '<h2 style="font-size:16px;font-family:Arial,Helvetica,sans-serif;margin:7px 0px 0px 43px;padding:35px 0px 0px 0px">Mentioned to you</h2><br>';
+                $main_content.= $mentioned_mail_content;
+            }
+            if ($mail_content) {
+                $main_content.= '<h2 style="font-size:16px;font-family:Arial,Helvetica,sans-serif;margin:7px 0px 0px 43px;padding:35px 0px 0px 0px">Activities</h2><br>';
+            }
+            $main_content.= $mail_content;
+            pg_query_params($db_lnk, 'UPDATE users SET last_email_notified_activity_id = $1 WHERE id = $2', $qry_arr);
+            $emailFindReplace['##CONTENT##'] = $main_content;
+            $emailFindReplace['##NAME##'] = $user['full_name'];
+            $emailFindReplace['##NOTIFICATION_COUNT##'] = $notification_count;
+            $emailFindReplace['##SINCE##'] = strftime("%I:%M %p ( %B %e, %Y)");
+            $emailFindReplace['##USER_ID##'] = $user['id'];
+            sendMail('email_notification', $emailFindReplace, $user['email'], $reply_to_mail);
+        }
+    }
 }
