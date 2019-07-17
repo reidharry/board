@@ -460,6 +460,7 @@ App.FooterView = Backbone.View.extend({
         var target = $(e.target);
         target.parents('li.dropdown').addClass('open');
         this.$el.find('li.js-import-boards-back').remove();
+        this.$el.find('.js-board-import-info').remove();
         this.$el.find('.js-back').removeClass('hide');
         return false;
     },
@@ -526,6 +527,7 @@ App.FooterView = Backbone.View.extend({
         $(new App.BoardImportFormView({}).el).insertAfter(insert);
         $('footer').trigger('footerActionRendered');
         $('.js-show-boards-list-response').html('');
+        this.showTooltip();
         return false;
     },
     /**
@@ -590,6 +592,7 @@ App.FooterView = Backbone.View.extend({
         $('.js-qsearch-container').removeClass('hide');
         $('.js-show-boards-list-response').addClass('hide');
         this.$el.find('li.js-back').remove();
+        this.$el.find('.js-board-import-info').remove();
         this.$el.find('li.js-import-boards-back').remove();
         var recent_boards = '';
         var my_boards = '';
@@ -988,69 +991,71 @@ App.FooterView = Backbone.View.extend({
                             }
                             activity.from_footer = true;
                             activity.attributes.original_comment = activity.attributes.comment;
-                            if (mode == 1 && activity.attributes.token !== authuser.access_token && Notification.permission === 'granted') {
-                                var icon = window.location.pathname + 'img/logo-icon.png';
-                                if (activity.attributes.type != 'add_comment' && activity.attributes.type != 'edit_comment') {
-                                    var cardLink = activity.attributes.card_name;
-                                    activity.attributes.comment = activity.attributes.comment.replace('##CARD_LINK##', cardLink);
-                                    activity.attributes.comment = activity.attributes.comment.replace('##ORGANIZATION_LINK##', _.escape(activity.attributes.organization_name));
-                                    activity.attributes.comment = activity.attributes.comment.replace('##USER_NAME##', _.escape(activity.attributes.full_name));
-                                    activity.attributes.comment = activity.attributes.comment.replace('##LABEL_NAME##', activity.attributes.label_name);
-                                    activity.attributes.comment = activity.attributes.comment.replace('##CARD_NAME##', activity.attributes.card_name);
-                                    activity.attributes.comment = activity.attributes.comment.replace('##DESCRIPTION##', activity.attributes.card_description);
-                                    activity.attributes.comment = activity.attributes.comment.replace('##LIST_NAME##', activity.attributes.list_name);
-                                    activity.attributes.comment = activity.attributes.comment.replace('##BOARD_NAME##', activity.attributes.board_name);
-                                    if (!_.isUndefined(activity.attributes.checklist_name)) {
-                                        activity.attributes.comment = activity.attributes.comment.replace('##CHECKLIST_NAME##', activity.attributes.checklist_name);
+                            if (!_.isUndefined(Notification)) {
+                                if (mode == 1 && activity.attributes.token !== authuser.access_token && Notification.permission === 'granted') {
+                                    var icon = window.location.pathname + 'img/logo-icon.png';
+                                    if (activity.attributes.type != 'add_comment' && activity.attributes.type != 'edit_comment') {
+                                        var cardLink = activity.attributes.card_name;
+                                        activity.attributes.comment = activity.attributes.comment.replace('##CARD_LINK##', cardLink);
+                                        activity.attributes.comment = activity.attributes.comment.replace('##ORGANIZATION_LINK##', _.escape(activity.attributes.organization_name));
+                                        activity.attributes.comment = activity.attributes.comment.replace('##USER_NAME##', _.escape(activity.attributes.full_name));
+                                        activity.attributes.comment = activity.attributes.comment.replace('##LABEL_NAME##', activity.attributes.label_name);
+                                        activity.attributes.comment = activity.attributes.comment.replace('##CARD_NAME##', activity.attributes.card_name);
+                                        activity.attributes.comment = activity.attributes.comment.replace('##DESCRIPTION##', activity.attributes.card_description);
+                                        activity.attributes.comment = activity.attributes.comment.replace('##LIST_NAME##', activity.attributes.list_name);
+                                        activity.attributes.comment = activity.attributes.comment.replace('##BOARD_NAME##', activity.attributes.board_name);
+                                        if (!_.isUndefined(activity.attributes.checklist_name)) {
+                                            activity.attributes.comment = activity.attributes.comment.replace('##CHECKLIST_NAME##', activity.attributes.checklist_name);
+                                        }
+                                        if (!_.isUndefined(activity.attributes.checklist_item_name)) {
+                                            activity.attributes.comment = activity.attributes.comment.replace('##CHECKLIST_ITEM_NAME##', activity.attributes.checklist_item_name);
+                                        }
+                                        if (!_.isUndefined(activity.attributes.checklist_item_parent_name)) {
+                                            activity.attributes.comment = activity.attributes.comment.replace('##CHECKLIST_ITEM_PARENT_NAME##', activity.attributes.checklist_item_parent_name);
+                                        }
+                                    } else if (activity.attributes.type === 'add_comment') {
+                                        activity.set('originial_activity_comment', activity.attributes.comment);
+                                        activity.attributes.comment = _.escape(activity.attributes.full_name) + ' commented in card ' + activity.attributes.card_name + ' ' + activity.attributes.comment;
+                                        var patt = /@\w+/g;
+                                        if (patt.test(activity.attributes.comment)) {
+                                            activity.attributes.comment = _.escape(activity.attributes.full_name) + ' has mentioned you in card ' + activity.attributes.card_name + ' ' + activity.attributes.comment;
+                                        }
                                     }
-                                    if (!_.isUndefined(activity.attributes.checklist_item_name)) {
-                                        activity.attributes.comment = activity.attributes.comment.replace('##CHECKLIST_ITEM_NAME##', activity.attributes.checklist_item_name);
-                                    }
-                                    if (!_.isUndefined(activity.attributes.checklist_item_parent_name)) {
-                                        activity.attributes.comment = activity.attributes.comment.replace('##CHECKLIST_ITEM_PARENT_NAME##', activity.attributes.checklist_item_parent_name);
-                                    }
-                                } else if (activity.attributes.type === 'add_comment') {
-                                    activity.set('originial_activity_comment', activity.attributes.comment);
-                                    activity.attributes.comment = _.escape(activity.attributes.full_name) + ' commented in card ' + activity.attributes.card_name + ' ' + activity.attributes.comment;
-                                    var patt = /@\w+/g;
-                                    if (patt.test(activity.attributes.comment)) {
-                                        activity.attributes.comment = _.escape(activity.attributes.full_name) + ' has mentioned you in card ' + activity.attributes.card_name + ' ' + activity.attributes.comment;
-                                    }
-                                }
-                                if (authuser.user.default_desktop_notification === true || authuser.user.default_desktop_notification === 'true' || authuser.user.default_desktop_notification === 't') {
-                                    var patt_match = activity.attributes.comment.match(/@\w+/g);
-                                    if ((authuser.user.is_list_notifications_enabled === true || authuser.user.is_list_notifications_enabled === 'true' || authuser.user.is_list_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, list_notifications_array) !== -1)) {
-                                        new Notification(activity.attributes.comment, {
-                                            icon: icon
-                                        });
-                                    } else if ((authuser.user.is_card_notifications_enabled === true || authuser.user.is_card_notifications_enabled === 'true' || authuser.user.is_card_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_notifications_array) !== -1)) {
-                                        new Notification(activity.attributes.comment, {
-                                            icon: icon
-                                        });
-                                    } else if ((authuser.user.is_card_members_notifications_enabled === true || authuser.user.is_card_members_notifications_enabled === 'true' || authuser.user.is_card_members_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_members_notifications_array) !== -1)) {
-                                        new Notification(activity.attributes.comment, {
-                                            icon: icon
-                                        });
-                                    } else if ((authuser.user.is_card_labels_notifications_enabled === true || authuser.user.is_card_labels_notifications_enabled === 'true' || authuser.user.is_card_labels_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_labels_notifications_array) !== -1)) {
-                                        new Notification(activity.attributes.comment, {
-                                            icon: icon
-                                        });
-                                    } else if ((authuser.user.is_card_checklists_notifications_enabled === true || authuser.user.is_card_checklists_notifications_enabled === 'true' || authuser.user.is_card_checklists_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_checklists_notifications_array) !== -1)) {
-                                        new Notification(activity.attributes.comment, {
-                                            icon: icon
-                                        });
-                                    } else if ((authuser.user.is_card_attachments_notifications_enabled === true || authuser.user.is_card_attachments_notifications_enabled === 'true' || authuser.user.is_card_attachments_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_attachments_notifications_array) !== -1)) {
-                                        new Notification(activity.attributes.comment, {
-                                            icon: icon
-                                        });
-                                    } else if (patt_match.length > 0) {
-                                        $.each(patt_match, function(index, user) {
-                                            if (user === '@' + authuser.user.username) {
-                                                new Notification(activity.attributes.comment, {
-                                                    icon: icon
-                                                });
-                                            }
-                                        });
+                                    if (authuser.user.default_desktop_notification === true || authuser.user.default_desktop_notification === 'true' || authuser.user.default_desktop_notification === 't') {
+                                        var patt_match = activity.attributes.comment.match(/@\w+/g);
+                                        if ((authuser.user.is_list_notifications_enabled === true || authuser.user.is_list_notifications_enabled === 'true' || authuser.user.is_list_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, list_notifications_array) !== -1)) {
+                                            new Notification(activity.attributes.comment, {
+                                                icon: icon
+                                            });
+                                        } else if ((authuser.user.is_card_notifications_enabled === true || authuser.user.is_card_notifications_enabled === 'true' || authuser.user.is_card_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_notifications_array) !== -1)) {
+                                            new Notification(activity.attributes.comment, {
+                                                icon: icon
+                                            });
+                                        } else if ((authuser.user.is_card_members_notifications_enabled === true || authuser.user.is_card_members_notifications_enabled === 'true' || authuser.user.is_card_members_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_members_notifications_array) !== -1)) {
+                                            new Notification(activity.attributes.comment, {
+                                                icon: icon
+                                            });
+                                        } else if ((authuser.user.is_card_labels_notifications_enabled === true || authuser.user.is_card_labels_notifications_enabled === 'true' || authuser.user.is_card_labels_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_labels_notifications_array) !== -1)) {
+                                            new Notification(activity.attributes.comment, {
+                                                icon: icon
+                                            });
+                                        } else if ((authuser.user.is_card_checklists_notifications_enabled === true || authuser.user.is_card_checklists_notifications_enabled === 'true' || authuser.user.is_card_checklists_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_checklists_notifications_array) !== -1)) {
+                                            new Notification(activity.attributes.comment, {
+                                                icon: icon
+                                            });
+                                        } else if ((authuser.user.is_card_attachments_notifications_enabled === true || authuser.user.is_card_attachments_notifications_enabled === 'true' || authuser.user.is_card_attachments_notifications_enabled === 't') && (jQuery.inArray(activity.attributes.type, card_attachments_notifications_array) !== -1)) {
+                                            new Notification(activity.attributes.comment, {
+                                                icon: icon
+                                            });
+                                        } else if (patt_match.length > 0) {
+                                            $.each(patt_match, function(index, user) {
+                                                if (user === '@' + authuser.user.username) {
+                                                    new Notification(activity.attributes.comment, {
+                                                        icon: icon
+                                                    });
+                                                }
+                                            });
+                                        }
                                     }
                                 }
                             }
@@ -1936,7 +1941,7 @@ App.FooterView = Backbone.View.extend({
                                         board.board_users.add(activity.attributes.board_user);
                                     }
                                 }
-                            } else if (activity.attributes.type === 'add_board' && !_.isUndefined(App.boards) && !_.isEmpty(App.boards) && App.boards !== null) {
+                            } else if (activity.attributes.type === 'add_board' && !_.isUndefined(App.boards) && !_.isEmpty(App.boards) && App.boards !== null && mode == 1) {
                                 var _new_board = new App.Board();
                                 _new_board.set('id', parseInt(activity.attributes.board_id));
                                 _new_board.set('name', filterXSS(activity.attributes.board_name));
@@ -2145,13 +2150,14 @@ App.FooterView = Backbone.View.extend({
      */
     notificationMenu: function(e) {
         e.preventDefault();
-        if (!_.isUndefined(authuser) && !_.isEmpty(authuser) && authuser.board_id !== 0) {
-
-            $('.js-notification-response-container').html(new App.NotificationMenuView({
-                user: authuser
-            }).el);
-        } else {
-            this.userActivities();
+        if (!_.isUndefined(authuser) && !_.isEmpty(authuser)) {
+            if (authuser.board_id !== 0) {
+                $('.js-notification-response-container').html(new App.NotificationMenuView({
+                    user: authuser
+                }).el);
+            } else {
+                this.userActivities();
+            }
         }
     },
     showNotification: function(e) {
@@ -2385,7 +2391,7 @@ App.FooterView = Backbone.View.extend({
      */
     importWekanBoard: function(e) {
         e.preventDefault();
-        $('#js-board-import-loader').removeClass('hide');
+        $('#js-board-import-wekan-loader').removeClass('hide');
         var self = this;
         var form = $('form#js-board-import-wekan');
         var fileData = new FormData(form[0]);
@@ -2398,10 +2404,10 @@ App.FooterView = Backbone.View.extend({
             cache: false,
             contentType: false,
             error: function(e, s) {
-                $('#js-board-import-loader', '.js-show-board-import-wekan-form').parent('.js-show-board-import-wekan-form').addClass('hide');
+                $('#js-board-import-wekan-loader', '.js-show-board-import-wekan-form').parent('.js-show-board-import-wekan-form').addClass('hide');
             },
             success: function(model, response) {
-                $('#js-board-import-loader', '.js-show-board-import-wekan-form').addClass('hide');
+                $('#js-board-import-wekan-loader', '.js-show-board-import-wekan-form').addClass('hide');
                 if (!_.isUndefined(response.id)) {
                     app.navigate('#/board/' + response.id, {
                         trigger: true,
@@ -2514,7 +2520,7 @@ App.FooterView = Backbone.View.extend({
      */
     importKantreeBoard: function(e) {
         e.preventDefault();
-        $('#js-board-import-loader').removeClass('hide');
+        $('#js-board-import-kantree-loader').removeClass('hide');
         var self = this;
         var form = $('form#js-board-import-kantree');
         var fileData = new FormData(form[0]);
@@ -2527,10 +2533,10 @@ App.FooterView = Backbone.View.extend({
             cache: false,
             contentType: false,
             error: function(e, s) {
-                $('#js-board-import-loader', '.js-show-board-import-kantree-form').parent('.js-show-board-import-kantree-form').addClass('hide');
+                $('#js-board-import-kantree-loader', '.js-show-board-import-kantree-form').parent('.js-show-board-import-kantree-form').addClass('hide');
             },
             success: function(model, response) {
-                $('#js-board-import-loader', '.js-show-board-import-kantree-form').addClass('hide');
+                $('#js-board-import-kantree-loader', '.js-show-board-import-kantree-form').addClass('hide');
                 if (!_.isUndefined(response.id)) {
                     app.navigate('#/board/' + response.id, {
                         trigger: true,
@@ -2557,7 +2563,7 @@ App.FooterView = Backbone.View.extend({
      */
     importTaigaBoard: function(e) {
         e.preventDefault();
-        $('#js-board-import-loader').removeClass('hide');
+        $('#js-board-import-taiga-loader').removeClass('hide');
         var self = this;
         var form = $('form#js-board-import-taiga');
         var fileData = new FormData(form[0]);
@@ -2570,10 +2576,10 @@ App.FooterView = Backbone.View.extend({
             cache: false,
             contentType: false,
             error: function(e, s) {
-                $('#js-board-import-loader', '.js-show-board-import-taiga-form').parent('.js-show-board-import-taiga-form').addClass('hide');
+                $('#js-board-import-taiga-loader', '.js-show-board-import-taiga-form').parent('.js-show-board-import-taiga-form').addClass('hide');
             },
             success: function(model, response) {
-                $('#js-board-import-loader', '.js-show-board-import-taiga-form').addClass('hide');
+                $('#js-board-import-taiga-loader', '.js-show-board-import-taiga-form').addClass('hide');
                 if (!_.isUndefined(response.id)) {
                     app.navigate('#/board/' + response.id, {
                         trigger: true,

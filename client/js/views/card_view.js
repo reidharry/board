@@ -213,8 +213,12 @@ App.CardView = Backbone.View.extend({
             silent: true,
             success: function(model, response) {
                 self.model.set('list_moved_date', response.activity.created);
-                var list_moved_date_date_time = response.activity.created.split('T');
-                list_moved_date_date_time = list_moved_date_date_time[0].split(' ');
+                var list_moved_date_date_time;
+                if (response.activity.created.indexOf('T') != -1) {
+                    list_moved_date_date_time = response.activity.created.split('T');
+                } else {
+                    list_moved_date_date_time = list_moved_date_date_time[0].split(' ');
+                }
                 if ($('#js-card-' + self.model.id).find('.list-moved-date').length === 0) {
                     $('#js-card-' + self.model.id).find('.js-list-card-data').append('<li class="card-listing-truncate list-moved-date"><small title="' + i18next.t('List Moved Date') + '"><span class="label label-default">' + dateFormat(list_moved_date_date_time[0], 'mediumDate') + '</span></small></li>');
                 } else {
@@ -697,10 +701,10 @@ App.CardView = Backbone.View.extend({
             return false;
         }
         if (!_.isEmpty(this.model.attributes.name)) {
-            changeTitle(i18next.t('Card - %s on %s', {
+            changeTitle(i18next.t('%s on %s', {
                 postProcess: 'sprintf',
                 sprintf: [_.escape(this.model.attributes.name), _.escape(this.model.list.collection.board.attributes.name)]
-            }));
+            }), true);
         }
         var current_param = Backbone.history.fragment;
         current_param = current_param.split('?');
