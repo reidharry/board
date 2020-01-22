@@ -26,7 +26,7 @@
         </li>
         <% if (!_.isUndefined(APPS) && APPS !== null ) {
               if (!_.isUndefined(APPS.enabled_apps) && APPS.enabled_apps !== null) {
-                if ($.inArray('r_ldap_login',APPS.enabled_apps) !== -1) { %>
+                if ($.inArray('r_ldap_login',APPS.enabled_apps) !== -1 || $.inArray('r_multiple_ldap_login',APPS.enabled_apps) !== -1) { %>
         <li class="<% if(current_param === 'ldap') { %>active<% } %>">
           <a class="js-filter cur ldap_login_check" data-filter="ldap" title="<%- i18next.t('LDAP') %>">
             <span class="show">
@@ -84,7 +84,7 @@
               <th rowspan="2" class="text-center">
                 <%- i18next.t("Select") %>
               </th>
-              <th rowspan="2" class="col-xs-2">
+              <th rowspan="3" class="col-xs-3">
                 <span class="js-sort cur" data-field="username" data-direction="asc" title="<%- i18next.t('User') %>">
                   <span class="icon-caret-down"></span>
                   <%- i18next.t("User") %>
@@ -180,7 +180,7 @@
               </th>
               <th class="text-center">
                 <span class="icon-caret-down hide"></span>
-                <span class="js-sort cur verticalTableHeader show" data-field="login_country_name" data-direction="asc"
+                <span class="js-sort cur verticalTableHeader show" data-field="last_login_ip" data-direction="asc"
                   title="<%- i18next.t('IP') %>">
                   <%- i18next.t("IP") %>
                 </span>
@@ -193,7 +193,7 @@
               </th>
               <th class="text-center">
                 <span class="icon-caret-down hide"></span>
-                <span class="js-sort cur verticalTableHeader show" data-field="register_country_name" data-direction="asc"
+                <span class="js-sort cur verticalTableHeader show" data-field="registered_ip" data-direction="asc"
                   title="<%- i18next.t('IP') %>">
                   <%- i18next.t("IP") %>
                 </span>

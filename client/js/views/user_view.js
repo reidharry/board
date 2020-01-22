@@ -81,17 +81,19 @@ App.UserView = Backbone.View.extend({
     enabledesktopNotification: function(e) {
         e.preventDefault();
         var self = this;
-        Notification.requestPermission(function(permission) {
-            // Whatever the user answers, we make sure we store the information
-            if (!('permission' in Notification)) {
-                Notification.permission = permission;
-            }
-            // If the user is okay, let's create a notification
-            if (permission === 'granted') {
-                var notification = new Notification('Desktop notification enabled.');
-                location.reload();
-            }
-        });
+        if (!_.isUndefined(Notification)) {
+            Notification.requestPermission(function(permission) {
+                // Whatever the user answers, we make sure we store the information
+                if (!('permission' in Notification)) {
+                    Notification.permission = permission;
+                }
+                // If the user is okay, let's create a notification
+                if (permission === 'granted') {
+                    var notification = new Notification('Desktop notification enabled.');
+                    location.reload();
+                }
+            });
+        }
     },
     /** 
      * TriggerSettingtab()
@@ -237,6 +239,10 @@ App.UserView = Backbone.View.extend({
      *
      */
     renderType: function() {
+        if (!_.isUndefined(App.boards) && !_.isUndefined(App.boards) && !_.isUndefined(App.boards.sortField) && App.boards.sortField !== null && App.boards.sortField !== 'name') {
+            App.boards.setSortField('name', 'asc');
+            App.boards.sort();
+        }
         var is_send_newsletter_val = this.model.attributes.is_send_newsletter;
         changeTitle('User - ' + _.escape(this.model.attributes.username) + ' - ' + this.profile_tab_title[this.type]);
         this.$el.html(this.template({

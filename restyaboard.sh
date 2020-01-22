@@ -99,7 +99,7 @@
             if [ ${pkginfo} = "pkg_info" ]; then
                 # BSD needs PKG_PATH set to load anything over the net.
                 if [ x${PKG_PATH} = x ]; then
-					echo "Pleaase set the environment variable PKG_PATH and try again."
+					echo "Please set the environment variable PKG_PATH and try again."
 					exit 1
                 fi
             fi
@@ -656,6 +656,9 @@
 					if [[ ${PSQL_VERSION} =~ ^11\.[0-9]{1,}$ ]]; then
 						PSQL_VERSION=11
 					fi
+					if [[ ${PSQL_VERSION} =~ ^12\.[0-9]{1,}$ ]]; then
+						PSQL_VERSION=12
+					fi
 					if [[ 1 -eq "$(echo "${PSQL_VERSION} < 9.3" | bc)" ]]; then
 						set +x
 						echo "Restyaboard will not work in your PostgreSQL version (i.e. less than 9.3). So script going to update PostgreSQL version 9.6"
@@ -688,6 +691,9 @@
 				fi
 				if [[ ${PSQL_VERSION} =~ ^11\.[0-9]{1,}$ ]]; then
 					PSQL_VERSION=11
+				fi
+				if [[ ${PSQL_VERSION} =~ ^12\.[0-9]{1,}$ ]]; then
+					PSQL_VERSION=12
 				fi
 				sed -e 's/peer/trust/g' -e 's/ident/trust/g' < /etc/postgresql/${PSQL_VERSION}/main/pg_hba.conf > /etc/postgresql/${PSQL_VERSION}/main/pg_hba.conf.1
 				cd /etc/postgresql/${PSQL_VERSION}/main || exit
@@ -1367,6 +1373,21 @@
 			fi
 		}
 
+		upgrade-0.6.7-0.6.8(){
+			if [ -d "$dir/client/apps" ]; then
+				chmod -R go+w "$dir/client/apps"
+			else 
+				mkdir "$dir/client/apps"
+				chmod -R go+w "$dir/client/apps"
+			fi
+			curl -v -L -G -o /tmp/r_codenames-v0.1.3.zip  https://github.com/RestyaPlatform/board-apps/releases/download/v1/r_codenames-v0.1.3.zip
+			unzip /tmp/r_codenames-v0.1.3.zip -d "$dir/client/apps"
+
+            find "$dir/client/apps" -type d -exec chmod 755 {} \;
+            find "$dir/client/apps" -type f -exec chmod 644 {} \;
+            chmod 0777 $dir/client/apps/**/*.json
+		}
+
 		update_version()
 		{
 			set +x
@@ -1472,7 +1493,14 @@
 				fi
 				if [[ $version < "v0.6.7" ]];
 				then
+					set +x
+					echo "Before updating make sure to remove duplicate username's and emails used by more than one user, otherwise unique indexing for users will be thrown an error But all other queries will be executed without any issue."
+					read -r -s -p $'Press [Enter] key to continue...'
 					upgrade+=("upgrade-0.6.6-0.6.7")
+				fi
+				if [[ $version < "v0.6.8" ]];
+				then
+					upgrade+=("upgrade-0.6.7-0.6.8")
 				fi			
 				# use for loop to read all values and indexes
 				for i in "${upgrade[@]}"
@@ -1620,7 +1648,7 @@
 			chmod -R go+w "$dir/media"
 			chmod -R go+w "$dir/client/img"
 			chmod -R go+w "$dir/tmp/cache"
-			chmod -R 0755 $dir/server/php/shell/*.sh
+			chmod +x $dir/server/php/shell/main.sh
 			change_permission
 
 			psql_connect
@@ -1682,6 +1710,15 @@
 		set +x
 		echo "Checking Hosting..."
 		response=$(curl -H Metadata:true http://169.254.169.254/metadata/instance?api-version=2017-04-02 --write-out %{http_code} --connect-timeout 10 --max-time 10 --silent --output /dev/null)
+		
+		if [ -f /etc/ImageMagick-6/policy.xml ]; then
+     		sed -i -e 's/<policy domain="coder" rights="none" pattern="PDF" \/>/<policy domain="coder" rights="read" pattern="PDF" \/>/g' /etc/ImageMagick-6/policy.xml
+		fi
+
+		if [ -f /etc/ImageMagick/policy.xml ]; then
+			sed -i -e 's/<policy domain="coder" rights="none" pattern="PDF" \/>/<policy domain="coder" rights="read" pattern="PDF" \/>/g' /etc/ImageMagick/policy.xml
+		fi
+
 		if [ ${response} -eq 200 ];then
 			echo "Note: PHP Mailer will not work in Azure. Kindly use external SMTP mail server."
 		fi

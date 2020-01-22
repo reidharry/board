@@ -52,7 +52,9 @@ if (round((strtotime('now') - $_imap_time_trace) / 60) >= 30) {
                                 if (preg_match('/^X-/i', $line)) {
                                     // separate name and value
                                     preg_match('/^([^:]*): (.*)/i', $line, $arg);
-                                    $fetch_head[$arg[1]] = $arg[2];
+                                    if(!empty($arg)){
+                                        $fetch_head[$arg[1]] = $arg[2];
+                                    }
                                 }
                             }
                         }
@@ -67,6 +69,7 @@ if (round((strtotime('now') - $_imap_time_trace) / 60) >= 30) {
                             // Email format for card  - board+##board_id##+##card_id##+hash@restya.com
                             // Check to email address contains atleast one "+" symbol
                             if (count($mail) > 1) {
+                                $body_data = array();
                                 // Fetch email body
                                 $s = imap_fetchstructure($connection, $counter);
                                 if (empty($s->parts)) { // simple

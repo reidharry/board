@@ -25,7 +25,7 @@ App.ApplicationView = Backbone.View.extend({
      * initialize default values and actions
      */
     initialize: function(options) {
-        if (adminUrlModels.indexOf(options.model) === -1) {
+        if (adminUrlModels.indexOf(options.model) === -1 && options.model !== 'boards_index' && options.model !== 'boards_view') {
             $('#content').html('');
         }
         $('#footer').removeClass('action-open');
@@ -116,6 +116,8 @@ App.ApplicationView = Backbone.View.extend({
                                     PAGING_COUNT = settings_response.PAGING_COUNT;
                                     ALLOWED_FILE_EXTENSIONS = settings_response.ALLOWED_FILE_EXTENSIONS;
                                     R_LDAP_LOGIN_HANDLE = settings_response.R_LDAP_LOGIN_HANDLE;
+                                    R_MLDAP_LOGIN_HANDLE = settings_response.R_MLDAP_LOGIN_HANDLE;
+                                    R_MLDAP_SERVERS = settings_response.R_MLDAP_SERVERS;
                                     APPS = settings_response.apps;
                                     IMAP_EMAIL = settings_response.IMAP_EMAIL;
                                     DEFAULT_CARD_VIEW = settings_response.DEFAULT_CARD_VIEW;
@@ -124,8 +126,20 @@ App.ApplicationView = Backbone.View.extend({
                                     if ($.cookie('auth') !== undefined && $.cookie('auth') !== null && authuser.user.language !== null && !_.isUndefined(authuser.user.language) && !_.isEmpty(authuser.user.language)) {
                                         current_language = authuser.user.language;
                                     } else if (navigator.language || navigator.userLanguage) {
+                                        var languages = ($.cookie('languages')) ? $.cookie('languages').split(',') : null;
+                                        if (languages !== null) {
+                                            languages = JSON.parse(languages);
+                                        }
                                         current_language = navigator.language || navigator.userLanguage;
+                                        var language_reg = current_language.split('-');
+                                        if (language_reg.length > 1) {
+                                            language_reg['1'] = language_reg['1'].toUpperCase();
+                                        }
+                                        current_language = language_reg.join('_');
                                         current_language = current_language.replace("-", "_");
+                                        if (_.isUndefined(languages[current_language]) || languages[current_language] === null || _.isEmpty(languages[current_language])) {
+                                            current_language = DEFAULT_LANGUAGE;
+                                        }
                                     } else {
                                         current_language = DEFAULT_LANGUAGE;
                                     }
@@ -217,6 +231,8 @@ App.ApplicationView = Backbone.View.extend({
                                 PAGING_COUNT = settings_response.PAGING_COUNT;
                                 ALLOWED_FILE_EXTENSIONS = settings_response.ALLOWED_FILE_EXTENSIONS;
                                 R_LDAP_LOGIN_HANDLE = settings_response.R_LDAP_LOGIN_HANDLE;
+                                R_MLDAP_LOGIN_HANDLE = settings_response.R_MLDAP_LOGIN_HANDLE;
+                                R_MLDAP_SERVERS = settings_response.R_MLDAP_SERVERS;
                                 APPS = settings_response.apps;
                                 if (!_.isUndefined(APPS) && APPS !== null && !_.isEmpty(APPS.enabled_apps) && !_.isUndefined(APPS.enabled_apps) && APPS.enabled_apps !== null) {
                                     APPS.permission_checked_apps = [];
@@ -237,8 +253,20 @@ App.ApplicationView = Backbone.View.extend({
                                 if ($.cookie('auth') !== undefined && $.cookie('auth') !== null && authuser.user.language !== null && !_.isUndefined(authuser.user.language) && !_.isEmpty(authuser.user.language)) {
                                     current_language = authuser.user.language;
                                 } else if (navigator.language || navigator.userLanguage) {
+                                    var languages = ($.cookie('languages')) ? $.cookie('languages').split(',') : null;
+                                    if (languages !== null) {
+                                        languages = JSON.parse(languages);
+                                    }
                                     current_language = navigator.language || navigator.userLanguage;
+                                    var language_reg = current_language.split('-');
+                                    if (language_reg.length > 1) {
+                                        language_reg['1'] = language_reg['1'].toUpperCase();
+                                    }
+                                    current_language = language_reg.join('_');
                                     current_language = current_language.replace("-", "_");
+                                    if (_.isUndefined(languages[current_language]) || languages[current_language] === null || _.isEmpty(languages[current_language])) {
+                                        current_language = DEFAULT_LANGUAGE;
+                                    }
                                 } else {
                                     current_language = DEFAULT_LANGUAGE;
                                 }
@@ -383,6 +411,7 @@ App.ApplicationView = Backbone.View.extend({
                     if (!_.isUndefined(response.error)) {
                         $.cookie('redirect_link', window.location.hash);
                         changeTitle('Board not found');
+                        $('#content').html('');
                         $('#content').html(new App.Board404View({
                             model: authuser
                         }).el);
@@ -488,11 +517,12 @@ App.ApplicationView = Backbone.View.extend({
                                 Board.board_user_role_id = board_user_role_id.attributes.board_user_role_id;
                             }
                         }
-
+                        App.current_board = Board;
                         $('#header').html(new App.BoardHeaderView({
                             model: Board,
                         }).el);
                         changeTitle('Board - ' + _.escape(Board.attributes.name));
+                        $('#content').html('');
                         $('#content').html(new App.BoardView({
                             model: Board
                         }).el);
@@ -524,7 +554,6 @@ App.ApplicationView = Backbone.View.extend({
                             $('.js-switch-grid-view').trigger('click');
                             view_type = null;
                         }
-                        App.current_board = Board;
                         this.footerView = new App.FooterView({
                             model: authuser,
                             board_id: self.id,
@@ -565,9 +594,16 @@ App.ApplicationView = Backbone.View.extend({
 
         } else {
             if (view_type === 'list') {
+                $('#content').html('');
                 view_type = null;
+                if ($('#listview_table').length === 0) {
+                    $('.js-switch-list-view').trigger('click');
+                }
             } else if (view_type === 'calendar') {
                 view_type = null;
+                if ($('.calendar-view').length === 0) {
+                    $('.js-switch-calendar-view').trigger('click');
+                }
             } else if (view_type === 'gantt') {
                 $('div.js-board-view-' + self.id).html('<div class="well-sm"></div><div class="col-lg-12 col-md-12 col-sm-12 col-xs-12 well-lg"><div class="panel panel-default"><div class="panel-body text-center"><i class="fa fa-cog fa-spin"></i><h4 class="lead">' + i18next.t('Loading ....') + '</h4></div></div></div>');
                 _(function() {
@@ -662,6 +698,7 @@ App.ApplicationView = Backbone.View.extend({
                 success: function(model, response) {
                     App.boards = boards;
                     page.populateLists();
+                    page.populateCards();
                     page.populateBoardStarred();
                     var organizations = new App.OrganizationCollection();
                     organizations.url = api_url + 'organizations.json?type=simple';
@@ -692,7 +729,7 @@ App.ApplicationView = Backbone.View.extend({
                 });
             }
         }
-        if (page.model !== 'boards_view' && page.model !== 'users_index' && page.model !== 'user_logins_index' && page.model !== 'admin_boards_index') {
+        if (page.model !== 'boards_view' && page.model !== 'users_index' && page.model !== 'user_logins_index' && page.model !== 'admin_boards_index' && page.model !== 'boards_index') {
             if (page.model == 'app_page') {
                 if (!_.isEmpty(page.options.name) && !_.isUndefined(page.options.name)) {
                     var page_name = page.options.name + '' + page.options.page;
@@ -709,6 +746,11 @@ App.ApplicationView = Backbone.View.extend({
     populateLists: function() {
         App.boards.each(function(board) {
             board.lists.add(board.attributes.lists);
+        });
+    },
+    populateCards: function() {
+        App.boards.each(function(board) {
+            board.cards.add(board.attributes.cards);
         });
     },
     populateBoardStarred: function() {
@@ -842,12 +884,7 @@ App.ApplicationView = Backbone.View.extend({
                     changeTitle(i18next.t('Closed Boards'));
                     page_title = i18next.t('Closed Boards');
                 }
-                this.headerView = new App.BoardIndexHeaderView({
-                    model: page_title,
-                });
-                $('#header').html(new App.BoardIndexHeaderView({
-                    model: page_title,
-                }).el);
+
                 var board_index = $('#content');
                 board_index.html('');
                 var self = this;
@@ -863,6 +900,14 @@ App.ApplicationView = Backbone.View.extend({
                             cache: false,
                             abortPending: true,
                             success: function(board_model, board_response) {
+                                $('#header').html(page.headerView.el);
+                                this.headerView = new App.BoardIndexHeaderView({
+                                    model: page_title,
+                                });
+                                $('#header').html(new App.BoardIndexHeaderView({
+                                    model: page_title,
+                                }).el);
+                                $('body').removeAttr('style class');
                                 board_index.append(new App.UserDashboardView({
                                     model: page_title,
                                 }).el);
@@ -1344,10 +1389,12 @@ App.ApplicationView = Backbone.View.extend({
             }
         } else {
             if (Backbone.history.fragment.indexOf('board/') != -1 || Backbone.history.fragment.indexOf('organization/') != -1 || Backbone.history.fragment.indexOf('boards') != -1) {
-                this.footerView = new App.FooterView({
-                    model: authuser,
-                }).render();
-                $('#footer').html(this.footerView.el);
+                if (Backbone.history.fragment.indexOf('organization/') != -1 || Backbone.history.fragment.indexOf('boards') != -1) {
+                    this.footerView = new App.FooterView({
+                        model: authuser,
+                    }).render();
+                    $('#footer').html(this.footerView.el);
+                }
             } else {
                 $('#footer').html('');
             }
