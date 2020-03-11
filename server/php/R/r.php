@@ -1030,6 +1030,22 @@ function r_get($r_resource_cmd, $r_resource_vars, $r_resource_filters)
             $timezones[] = $timezones_row;
         }
         $response[]['timezones'] = $timezones;
+        $files = glob(APP_PATH . '/client/locales/*/translation.json', GLOB_BRACE);
+        $lang_iso2_codes = array();
+        foreach ($files as $file) {
+            $folder = explode(DS, $file);
+            $folder_iso2_code = $folder[count($folder) - 2];
+            array_push($lang_iso2_codes, $folder_iso2_code);
+        }
+        $languages = array();
+        $qry_val_arr = array(
+            '{' . implode($lang_iso2_codes, ',') . '}'
+        );
+        $result = pg_query_params($db_lnk, 'SELECT name, iso2 FROM languages WHERE iso2 = ANY ( $1 ) ORDER BY name ASC', $qry_val_arr);
+        while ($row = pg_fetch_assoc($result)) {
+            $languages[$row['iso2']] = $row['name'];
+        }
+        $response[]['languages'] = json_encode($languages);
         echo json_encode($response);
         break;
 
@@ -5283,18 +5299,18 @@ function r_post($r_resource_cmd, $r_resource_vars, $r_resource_filters, $r_post)
             $response['cards_labels'] = $cards_labels;
             if (count($newlabel) && !count(array_diff($previous_cards_labels, $oldlabel))) {
                 $names = implode(",", $newlabel);
-                $names = preg_replace('/[ ,]+/', ', ', $names);
+                $names = preg_replace('/[,]+/', ', ', $names);
                 $comment = '##USER_NAME## added label(s) to the card ##CARD_LINK## - ' . $names;
                 $type = 'add_card_label';
             } else if (!count($newlabel) && count(array_diff($previous_cards_labels, $oldlabel))) {
                 $names = implode(",", array_diff($previous_cards_labels, $oldlabel));
-                $names = preg_replace('/[ ,]+/', ', ', $names);
+                $names = preg_replace('/[,]+/', ', ', $names);
                 $comment = '##USER_NAME## removed label(s) to the card ##CARD_LINK## - ' . $names;
                 $type = 'update_card_label';
             } else if (count($newlabel) && count(array_diff($previous_cards_labels, $oldlabel))) {
                 $deletenames = implode(",", array_diff($previous_cards_labels, $oldlabel));
                 $names = implode(",", $newlabel);
-                $names = preg_replace('/[ ,]+/', ', ', $names);
+                $names = preg_replace('/[,]+/', ', ', $names);
                 $comment = '##USER_NAME## removed the label(s) ' . ' - ' . $deletenames . ' and added the label(s) ' . ' - ' . $names . ' to the card ##CARD_LINK##';
                 $type = 'update_card_label';
             } else {
