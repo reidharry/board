@@ -14,23 +14,33 @@
   </div>
  <%  } %> 
  <div class="clearfix">
-		<% if(CheckFieldExists(card.board, 'attachments' , null , 'boolean', 'r_gridview_configure')){ %>
-			<% if(!_.isEmpty(card.attachments) && card.attachments.length > 0 && !_.isEmpty(card.attachments.at(0).attributes.name) && _.isEmpty(card.attachments.at(0).attributes.link) && card.attachments.at(0).attributes.name.toLowerCase().match(/\.(jpg|jpeg|png|webp|gif)$/)){ %>
-				<div class="clearfix js-card-attachment-image navbar-btn <% if(!_.isEmpty(card.collection) && !card.list.collection.board.attributes.is_show_image_front_of_card){ %> hide <% } %>">
-				<%
-					var img_src;
-					if (card.attachments.at(0).attributes.name.toLowerCase().match(/\.(jpg|jpeg|png|gif)$/)) {
-						img_src = card.showImage('CardAttachment',  card.attachments.at(0).attributes.id, 'large_thumb' );
-					} else if(card.attachments.at(0).attributes.name.toLowerCase().match(/\.(webp)$/)) { 
-						img_src = card.showImage('CardAttachment', card.attachments.at(0).attributes.id, 'original' );
-					}
-				%>
-				<img class="img-responsive center-block" src="<%= img_src %>"/>
-				</div>
-			<% } else if (!_.isEmpty(card.attachments) && card.attachments.length > 0 && card.attachments.at(0).attributes.name.toLowerCase().match(/\.(pdf)$/) && !_.isUndefined(card.attachments.at(0).attributes.doc_image_path) && !_.isEmpty(card.attachments.at(0).attributes.doc_image_path) && card.attachments.at(0).attributes.doc_image_path !== null) { 
-					var document_path = card.documentLink('Card', card.attachments.at(0).attributes); %>
-						<img src="/img/<%= card.attachments.at(0).attributes.doc_image_path %>" class="img-responsive center-block">
+		<% if(CheckFieldExists(card.board, 'attachments' , null , 'boolean', 'r_gridview_configure') && !_.isEmpty(card.attachments) && card.attachments.length > 0){ 
+			var coverImage = [];
+			if (card.attributes.cover_image_id !== null && parseInt(card.attributes.cover_image_id) !== 0) { 
+				coverImage = card.attachments.findWhere({
+                    id: parseInt(card.attributes.cover_image_id)
+				});
+			}
+			if (_.isEmpty(coverImage)) {
+				coverImage = card.attachments.at(0);
+			} %>
+			
+			<div class="clearfix js-card-attachment-image navbar-btn <% if(!_.isEmpty(card.collection) && !card.list.collection.board.attributes.is_show_image_front_of_card){ %> hide <% } %>">
+				<% if(_.isEmpty(coverImage.attributes.link) && coverImage.attributes.name.toLowerCase().match(/\.(jpg|jpeg|png|webp|gif)$/)){ %>
+					<%
+						var img_src;
+						if (coverImage.attributes.name.toLowerCase().match(/\.(jpg|jpeg|png|gif)$/)) {
+							img_src = card.showImage('CardAttachment',  coverImage.attributes.id, 'large_thumb' );
+						} else if(coverImage.attributes.name.toLowerCase().match(/\.(webp)$/)) { 
+							img_src = card.showImage('CardAttachment', coverImage.attributes.id, 'original' );
+						}
+					%>
+					<img class="img-responsive center-block" src="<%= img_src %>"/>
+				<% } else if (coverImage.attributes.name.toLowerCase().match(/\.(pdf)$/) && !_.isUndefined(coverImage.attributes.doc_image_path) && !_.isEmpty(coverImage.attributes.doc_image_path) && coverImage.attributes.doc_image_path !== null) { 
+						var document_path = card.documentLink('Card', coverImage.attributes); %>
+							<img class="img-responsive center-block" src="/img/<%= coverImage.attributes.doc_image_path %>">
 				<% }%> 
+			</div>
 		<% }%> 
   <a href="#/board/<%- card.attributes.board_id %>/card/<%- card.attributes.id %>" title="<%- card.attributes.name %>"><%= CheckFieldExists(card.board, 'name', card.attributes.name, 'Value', 'r_gridview_configure') %></a>
   </div>
@@ -99,7 +109,7 @@
 		</li>
 	<%}%>
 	<li id="js-card-customfields-list-<%- card.attributes.id %>" class="hide"></li>
-	<% if (!_.isUndefined(APPS.permission_checked_apps) && APPS.permission_checked_apps.indexOf('r_custom_fields') !== -1) {  
+	<% if (!_.isUndefined(APPS) && APPS !== null && !_.isUndefined(APPS.permission_checked_apps) && APPS.permission_checked_apps.indexOf('r_custom_fields') !== -1) {  
 		var card_customfield_list = '';
 		if (!_.isUndefined(App.current_board) && !_.isEmpty(App.current_board) && App.current_board !== null && !_.isUndefined(App.current_board.attributes) && !_.isEmpty(App.current_board.attributes) && App.current_board.attributes !== null && App.current_board.attributes.custom_fields && App.current_board.attributes.custom_fields.length > 0) { 
 			_.each(App.current_board.attributes.custom_fields, function(custom_field) { 
